@@ -7,6 +7,7 @@
  * Nothing here invents locations, dates, prices, reviews or specifications:
  * those fields are null and the pages hide them.
  */
+import { FACTORY, FACTORY_ADDRESS } from "@/lib/business";
 import { unitProducts } from "@/lib/planner/unit-products";
 import type { Category, Product, Project, SiteSettings } from "@/lib/types";
 
@@ -19,9 +20,9 @@ export const seedSettings: SiteSettings = {
   phoneIntl: "+94761528123",
   whatsappNumber: "94761528123",
   email: "pantrylk2026@gmail.com",
-  address: null,
+  address: FACTORY_ADDRESS,
   businessHours: null,
-  mapUrl: null,
+  mapUrl: FACTORY.mapUrl,
   facebookUrl: null,
   instagramUrl: null,
   tiktokUrl: null,

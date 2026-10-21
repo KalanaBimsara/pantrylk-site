@@ -3,7 +3,13 @@
 -- (public/images/products, regenerate at /dev/product-renders in development).
 -- Prices follow LKR 7,100 per sq ft of front; the site recalculates price, sizes and specs from code.
 
+-- Run after 0001_init.sql (creates the tables). The two categories are added here too, so this
+-- file also works when 0002_seed.sql hasn't been run.
+
 begin;
+
+insert into public.product_categories (slug, name, description, image_path, image_alt, sort_order) values ('base-cabinets', 'Base cabinets', 'Drawers and cupboards that carry the worktop.', '/images/oak-base-units.jpg', 'Oak-finish base cabinets with handleless drawers', 1) on conflict (slug) do nothing;
+insert into public.product_categories (slug, name, description, image_path, image_alt, sort_order) values ('wall-cabinets', 'Wall cabinets', 'Solid, glass and open options above the counter.', '/images/glass-wall-units.jpg', 'Black-framed glass wall cabinets above a stone backsplash', 2) on conflict (slug) do nothing;
 
 insert into public.products (slug, name, category_id, summary, description, price_mode, price, finishes, specs, is_featured, status, sort_order, published_at)
 select 'standard-base-cabinet', 'Standard Base Cabinet', c.id, 'Door base unit in four standard widths.', 'Our standard base cupboard with an adjustable shelf: 750 mm high and 560 mm deep, in 200, 400, 600 or 800 mm widths. Units of 800 mm have two doors.', 'starting', 11464, '[{"name": "Matte White", "hex": "#f1efea"}, {"name": "Natural Oak", "hex": "#c69c6d"}, {"name": "Grey High-Gloss", "hex": "#9a9c9d"}, {"name": "Pantry Navy", "hex": "#1f3550"}, {"name": "Sage Green", "hex": "#8b9a7f"}, {"name": "Walnut", "hex": "#5b3b26"}]'::jsonb, '[]'::jsonb, false, 'published', 20, now()

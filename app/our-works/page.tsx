@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/seo";
 import Link from "next/link";
 import PageIntro from "@/components/PageIntro";
 import ProjectsBrowser from "@/components/ProjectsBrowser";
@@ -7,11 +8,11 @@ import { externalProps, quotationLink } from "@/lib/links";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
-  title: "Our Works — Completed Kitchens",
-  description: "Completed custom kitchens, pantries and storage walls designed, built and installed by Pantry LK in Sri Lanka.",
-  alternates: { canonical: "/our-works" },
-};
+export const metadata: Metadata = pageMeta({
+  title: "Our Works — Completed Kitchens in Sri Lanka",
+  description: "Completed custom kitchens, pantries and storage walls designed, built and installed by Pantry LK in Sri Lanka. See layouts, finishes and materials.",
+  path: "/our-works",
+});
 
 export default async function OurWorksPage() {
   const [projects, s] = await Promise.all([getProjects(), getSettings()]);

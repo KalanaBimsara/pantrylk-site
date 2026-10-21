@@ -5,7 +5,7 @@ import BeforeAfter from "@/components/BeforeAfter";
 import ProjectCard from "@/components/ProjectCard";
 import ProjectGallery from "@/components/ProjectGallery";
 import { getProject, getProjects, getSettings } from "@/lib/content";
-import { SITE_URL } from "@/lib/site-url";
+import { absUrl, breadcrumbLd, BUSINESS_ID, ldJson, pageMeta } from "@/lib/seo";
 import { whatsappHref, WA_MESSAGES } from "@/lib/whatsapp";
 
 export const revalidate = 300;
@@ -20,12 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const p = await getProject(slug);
   if (!p) return { title: "Project not found" };
   const description = p.seoDescription ?? p.summary ?? `${p.title} — a ${p.layout.toLowerCase()} ${p.style.toLowerCase()} kitchen by Pantry LK.`;
-  return {
-    title: p.seoTitle ?? p.title,
-    description,
-    alternates: { canonical: `/our-works/${p.slug}` },
-    openGraph: { title: p.title, description, images: [{ url: p.cover.src, alt: p.cover.alt }] },
-  };
+  return pageMeta({ title: p.seoTitle ?? `${p.title} — ${p.layout} Kitchen`, description, path: `/our-works/${p.slug}`, image: { url: p.cover.src, alt: p.cover.alt }, type: "article" });
 }
 
 export default async function ProjectPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -48,14 +43,20 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
   ].filter((m) => m.v);
   const hasStory = project.summary || project.requirements || project.solution;
 
-  const breadcrumbLd = {
+  const crumbsLd = breadcrumbLd([
+    { name: "Home", path: "/" },
+    { name: "Our Works", path: "/our-works" },
+    { name: project.title, path: `/our-works/${project.slug}` },
+  ]);
+  const projectLd = {
     "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
-      { "@type": "ListItem", position: 2, name: "Our Works", item: `${SITE_URL}/our-works` },
-      { "@type": "ListItem", position: 3, name: project.title, item: `${SITE_URL}/our-works/${project.slug}` },
-    ],
+    "@type": "CreativeWork",
+    name: project.title,
+    description: project.summary ?? undefined,
+    image: [project.cover, ...project.images].map((i) => absUrl(i.src)),
+    url: absUrl(`/our-works/${project.slug}`),
+    creator: { "@id": BUSINESS_ID },
+    ...(project.location ? { locationCreated: { "@type": "Place", name: project.location } } : {}),
   };
 
   return (
@@ -149,7 +150,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ slug: 
         </section>
       )}
 
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd).replace(/</g, "\\u003c") }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={ldJson([projectLd, crumbsLd])} />
     </>
   );
 }

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/seo";
 import LegalPage from "@/components/LegalPage";
 import { getSettings } from "@/lib/content";
 
-export const metadata: Metadata = { title: "Terms and Conditions", alternates: { canonical: "/terms-and-conditions" } };
+export const metadata: Metadata = pageMeta({ title: "Terms and Conditions", description: "Terms for using the Pantry LK website, Kitchen Planner and quotations.", path: "/terms-and-conditions" });
 
 export default async function TermsPage() {
   const s = await getSettings();

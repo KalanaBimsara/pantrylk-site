@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/seo";
 import Image from "next/image";
 import Link from "next/link";
 import { getSettings } from "@/lib/content";
@@ -6,11 +7,11 @@ import { externalProps, quotationLink } from "@/lib/links";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
-  title: "About Us",
-  description: "Pantry LK Pvt Ltd designs and manufactures custom kitchen pantries, cabinetry and interior woodwork for homes in Sri Lanka.",
-  alternates: { canonical: "/about" },
-};
+export const metadata: Metadata = pageMeta({
+  title: "About Us — Kitchen Cabinet Makers in Bandaragama",
+  description: "Pantry LK (Pvt) Ltd designs and manufactures custom kitchen pantries, cabinetry and interior woodwork at our factory in Bandaragama, for homes across Sri Lanka.",
+  path: "/about",
+});
 
 const approach = [
   { img: "/images/install-progress.jpg", alt: "Base cabinets with open shelving being installed, before doors are fitted", t: "Design approach", d: "We start from the room and the way you cook — walkways, appliances, what needs storing — and plan cabinets around that, not the other way round." },

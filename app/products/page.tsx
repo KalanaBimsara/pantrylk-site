@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/seo";
 import { Suspense } from "react";
 import PageIntro from "@/components/PageIntro";
 import ProductsBrowser from "@/components/ProductsBrowser";
@@ -7,11 +8,11 @@ import { plannerLink } from "@/lib/links";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
-  title: "Products — Pantry Units, Kitchen Cabinets & Storage",
-  description: "Custom pantry units, base and wall cabinets, tall pantry cabinets and kitchen islands, made to measure in Sri Lanka by Pantry LK.",
-  alternates: { canonical: "/products" },
-};
+export const metadata: Metadata = pageMeta({
+  title: "Kitchen Cabinets & Pantry Units — Sizes and Prices",
+  description: "Base, wall and corner kitchen cabinets in standard sizes with prices, plus custom pantry units, tall cabinets and islands, made by Pantry LK in Sri Lanka.",
+  path: "/products",
+});
 
 export default async function ProductsPage() {
   const [products, categories, s] = await Promise.all([getProducts(), getCategories(), getSettings()]);

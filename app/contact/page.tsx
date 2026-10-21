@@ -1,16 +1,19 @@
 import type { Metadata } from "next";
+import { pageMeta } from "@/lib/seo";
 import ContactForm from "@/components/ContactForm";
+import FactoryMap from "@/components/FactoryMap";
+import { FACTORY, FACTORY_MAP_EMBED } from "@/lib/business";
 import PageIntro from "@/components/PageIntro";
 import { ClockIcon, MailIcon, PhoneIcon, PinIcon, WhatsAppIcon } from "@/components/Icons";
 import { getSettings } from "@/lib/content";
 import { externalProps, plannerLink, quotationLink } from "@/lib/links";
 import { whatsappHref, WA_MESSAGES } from "@/lib/whatsapp";
 
-export const metadata: Metadata = {
-  title: "Contact Us",
-  description: "Call, WhatsApp or email Pantry LK about a new kitchen, pantry or cabinetry project in Sri Lanka.",
-  alternates: { canonical: "/contact" },
-};
+export const metadata: Metadata = pageMeta({
+  title: "Contact Us — Visit Our Bandaragama Factory",
+  description: "Call, WhatsApp or email Pantry LK about a new kitchen, pantry or cabinetry project, or visit our factory at 248 Aguruwathota Road, Bandaragama.",
+  path: "/contact",
+});
 
 export default async function ContactPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
@@ -78,6 +81,30 @@ export default async function ContactPage({ searchParams }: { searchParams: Prom
             )}
           </div>
         </aside>
+      </section>
+
+      <section aria-labelledby="factory-h" className="wrap grid items-center gap-x-16 gap-y-8 pb-28 [grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))]">
+        <div className="flex flex-col gap-4">
+          <p className="eyebrow">Our factory</p>
+          <h2 id="factory-h" className="display h-lg">Visit us in Bandaragama</h2>
+          <p className="lead">
+            Every Pantry LK kitchen is made in our own workshop. Come and see finishes, fittings and work in progress. Please call or WhatsApp before
+            you visit so the right person is there to meet you.
+          </p>
+          <address className="not-italic text-[16px] leading-relaxed">
+            <strong className="block font-semibold">{FACTORY.name}</strong>
+            {FACTORY.street}
+            <br />
+            {FACTORY.locality} {FACTORY.postalCode}, {FACTORY.district} District
+            <br />
+            Sri Lanka
+          </address>
+          <div className="flex flex-wrap gap-3">
+            <a href={s.mapUrl ?? FACTORY.mapUrl} target="_blank" rel="noopener noreferrer" className="btn btn-navy">Get directions ↗</a>
+            <a href={`tel:${s.phoneIntl}`} className="btn btn-outline">Call {s.phoneDisplay}</a>
+          </div>
+        </div>
+        <FactoryMap embedUrl={FACTORY_MAP_EMBED} label={`Map showing ${FACTORY.name}, ${FACTORY.street}, ${FACTORY.locality}`} />
       </section>
     </>
   );

@@ -6,7 +6,7 @@ import ProductShowcase from "@/components/ProductShowcase";
 import { getProduct, getProducts, getSettings } from "@/lib/content";
 import { plannerLink, quotationLink } from "@/lib/links";
 import { siteUnit, unitSizes } from "@/lib/planner/site-products";
-import { SITE_URL } from "@/lib/site-url";
+import { absUrl, breadcrumbLd, BUSINESS_ID, ldJson, pageMeta } from "@/lib/seo";
 
 export const revalidate = 300;
 
@@ -21,10 +21,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!p) return { title: "Product not found" };
   const description = p.seoDescription ?? p.summary ?? p.description;
   return {
-    title: p.seoTitle ?? p.name,
-    description,
-    alternates: { canonical: `/products/${p.slug}` },
-    openGraph: { title: p.name, description, images: p.images[0] ? [{ url: p.images[0].src, alt: p.images[0].alt }] : undefined },
+    ...pageMeta({ title: p.seoTitle ?? `${p.name} — ${p.categoryName}`, description, path: `/products/${p.slug}`, image: p.images[0] ? { url: p.images[0].src, alt: p.images[0].alt } : null }),
   };
 }
 
@@ -36,17 +33,36 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const unit = u ? { plannerId: u.plannerId, showWidth: u.showWidth, sizes: unitSizes(u).map(({ width, label, dims, price }) => ({ width, label, dims, price })) } : undefined;
   const related = all.filter((p) => p.slug !== product.slug).sort((a, b) => Number(b.categorySlug === product.categorySlug) - Number(a.categorySlug === product.categorySlug)).slice(0, 4);
 
+  // Standard units list every size; other products give their fixed or starting price.
+  const seller = { "@id": BUSINESS_ID };
+  const made = "https://schema.org/MadeToOrder";
+  const prices = unit?.sizes.map((s) => s.price) ?? [];
+  const offers = prices.length
+    ? { "@type": "AggregateOffer", priceCurrency: "LKR", lowPrice: Math.min(...prices), highPrice: Math.max(...prices), offerCount: prices.length, availability: made, seller }
+    : product.price != null && product.priceMode === "fixed"
+      ? { "@type": "Offer", priceCurrency: "LKR", price: product.price, availability: made, seller, url: absUrl(`/products/${product.slug}`) }
+      : product.price != null && product.priceMode === "starting"
+        ? { "@type": "AggregateOffer", priceCurrency: "LKR", lowPrice: product.price, availability: made, seller }
+        : null;
   const productLd = {
     "@context": "https://schema.org",
     "@type": "Product",
     name: product.name,
     description: product.description || product.summary,
-    image: product.images.map((i) => (i.src.startsWith("http") ? i.src : `${SITE_URL}${i.src}`)),
+    image: product.images.map((i) => absUrl(i.src)),
+    sku: product.slug,
+    category: product.categoryName,
+    url: absUrl(`/products/${product.slug}`),
     brand: { "@type": "Brand", name: "Pantry LK" },
-    ...(product.priceMode === "fixed" && product.price != null
-      ? { offers: { "@type": "Offer", priceCurrency: "LKR", price: product.price, availability: "https://schema.org/MadeToOrder" } }
-      : {}),
+    manufacturer: { "@id": BUSINESS_ID },
+    ...(offers ? { offers } : {}),
   };
+  const crumbsLd = breadcrumbLd([
+    { name: "Home", path: "/" },
+    { name: "Products", path: "/products" },
+    ...(product.categorySlug ? [{ name: product.categoryName, path: `/products?category=${product.categorySlug}` }] : []),
+    { name: product.name, path: `/products/${product.slug}` },
+  ]);
 
   return (
     <>
@@ -87,7 +103,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
           </div>
         </section>
       )}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productLd).replace(/</g, "\\u003c") }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={ldJson([productLd, crumbsLd])} />
     </>
   );
 }
