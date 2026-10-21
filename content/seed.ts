@@ -7,6 +7,7 @@
  * Nothing here invents locations, dates, prices, reviews or specifications:
  * those fields are null and the pages hide them.
  */
+import { unitProducts } from "@/lib/planner/unit-products";
 import type { Category, Product, Project, SiteSettings } from "@/lib/types";
 
 const img = (file: string, alt: string, caption?: string) => ({ src: `/images/${file}.jpg`, alt, caption: caption ?? null });
@@ -274,4 +275,6 @@ export const seedProducts: Product[] = [
     [img("island-grey-oak-2", "Kitchen island with oak-finish panelling and stools")],
     { priceMode: "none", featured: true },
   ),
+  // Standard units, with photos rendered from the Kitchen Planner models and prices from Pantry LK's rates.
+  ...unitProducts((slug) => cat(slug).name),
 ];

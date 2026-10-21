@@ -3,11 +3,13 @@
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { getProduct } from "./catalog";
-import type { Design, Panel, Selection, View } from "./types";
+import { itemDims, roomWalls } from "./geometry";
+import { DEFAULT_LIGHTING } from "./lighting";
+import type { Design, KitchenStyle, Panel, Selection, View } from "./types";
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 
-export const DEFAULT_STYLE = { front: "matte-white", handle: "bar-steel", worktop: "white-quartz", carcass: "white" };
+export const DEFAULT_STYLE: KitchenStyle = { front: "matte-white", handle: "bar-steel", worktop: "white-quartz", carcass: "white", topThickness: 20, topEdge: "eased", splash: "none" };
 
 export function newDesign(shape: Design["room"]["shape"] = { kind: "rect", width: 4000, depth: 3400 }): Design {
   const front = shape.kind === "rect" ? 2 : shape.kind === "notch" ? 4 : 3;
@@ -21,6 +23,7 @@ export function newDesign(shape: Design["room"]["shape"] = { kind: "rect", width
     ],
     items: [],
     style: { ...DEFAULT_STYLE },
+    lighting: { ...DEFAULT_LIGHTING, zones: { ...DEFAULT_LIGHTING.zones } },
     notes: "",
   };
 }
@@ -34,6 +37,8 @@ const shapeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("angled"), width: num.min(1500).max(20000), depth: num.min(1500).max(20000), chamfer: num.min(300).max(19000) }),
 ]);
 const str = z.string().max(80);
+const edge = z.enum(["square", "eased", "bevel", "bullnose"]);
+const splash = z.enum(["none", "low", "full"]);
 const designSchema = z.object({
   v: z.literal(1),
   name: z.string().max(120),
@@ -53,10 +58,25 @@ const designSchema = z.object({
         depth: num.min(50).max(5000).optional(), height: num.min(10).max(6000).optional(), elev: num.min(0).max(6000).optional(),
         front: str.optional(), handle: str.optional(), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
         mirror: z.boolean().optional(), open: z.boolean().optional(),
+        top: z.object({ material: str.optional(), thickness: num.min(6).max(120).optional(), edge: edge.optional(), splash: splash.optional() }).optional(),
+        light: z.enum(["on", "off"]).optional(),
       }),
     )
     .max(400),
-  style: z.object({ front: str, handle: str, worktop: str, carcass: str }),
+  style: z.object({
+    front: str, handle: str, worktop: str, carcass: str,
+    topThickness: num.min(6).max(120).default(DEFAULT_STYLE.topThickness),
+    topEdge: edge.default(DEFAULT_STYLE.topEdge),
+    splash: splash.default(DEFAULT_STYLE.splash),
+  }),
+  lighting: z
+    .object({
+      mode: z.enum(["day", "evening"]),
+      color: str,
+      brightness: num.min(0.1).max(2),
+      zones: z.object({ under: z.boolean(), plinth: z.boolean(), glass: z.boolean(), cove: z.boolean(), shelf: z.boolean() }),
+    })
+    .default(DEFAULT_LIGHTING),
   notes: z.string().max(2000),
 });
 
@@ -64,7 +84,21 @@ export function parseDesign(raw: unknown): Design | null {
   const r = designSchema.safeParse(raw);
   if (!r.success) return null;
   const d = r.data as Design;
-  return { ...d, items: d.items.filter((i) => getProduct(i.product)).map((i) => ({ ...i, open: false })) };
+  const walls = roomWalls(d.room.shape);
+  const items = d.items.filter((i) => getProduct(i.product)).map((i) => {
+    const p = getProduct(i.product)!;
+    const it = { ...i, open: false };
+    if (p.mount !== "wall") return it;
+    const dm = itemDims(it, p, d.room);
+    for (const w of walls) {
+      if (Math.abs(Math.atan2(Math.sin(it.rot - w.rot), Math.cos(it.rot - w.rot))) > 0.01) continue;
+      const gap = (it.x - w.a.x) * w.n.x + (it.z - w.a.z) * w.n.z - dm.d / 2;
+      if (Math.abs(gap) < 0.6 || Math.abs(gap) > 60) continue;
+      return { ...it, x: it.x - w.n.x * (gap - 0.5), z: it.z - w.n.z * (gap - 0.5) };
+    }
+    return it;
+  });
+  return { ...d, items };
 }
 
 // ---------------------------------------------------------------- store
@@ -83,6 +117,8 @@ export type UI = {
   snapshot: string | null;
   dialog: "start" | "recover" | "tips" | null;
   cmd: { type: "zoomIn" | "zoomOut" | "focus" | "reset"; n: number; id?: string } | null;
+  /** Layout lock: units can't be moved, so dragging anywhere just looks around. */
+  locked: boolean;
 };
 
 export type State = { design: Design; ui: UI; past: Design[]; future: Design[] };
@@ -91,7 +127,7 @@ let state: State = {
   design: newDesign(),
   ui: {
     step: 1, view: "plan", elevWall: 0, sel: null, panel: null, dragging: false, dragInvalid: false,
-    showDims: true, showWallUnits: true, toast: null, snapshot: null, dialog: null, cmd: null,
+    showDims: true, showWallUnits: true, toast: null, snapshot: null, dialog: null, cmd: null, locked: false,
   },
   past: [],
   future: [],
@@ -160,7 +196,7 @@ export function redo() {
 
 function validSel(d: Design, sel: Selection): Selection {
   if (!sel) return null;
-  if (sel.type === "item") return d.items.some((i) => i.id === sel.id) ? sel : null;
+  if (sel.type === "item" || sel.type === "top") return d.items.some((i) => i.id === sel.id.split("#")[0]) ? sel : null;
   if (sel.type === "opening") return d.openings.some((o) => o.id === sel.id) ? sel : null;
   return sel;
 }
@@ -180,6 +216,15 @@ export function command(type: NonNullable<UI["cmd"]>["type"], id?: string) {
 // ---------------------------------------------------------------- autosave
 
 export const SAVE_KEY = "pantrylk-planner:v1";
+export const LOCK_KEY = "pantrylk-planner:locked";
+
+export function readLocked() {
+  try {
+    return localStorage.getItem(LOCK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function readSaved(): { design: Design; at: number } | null {
   try {

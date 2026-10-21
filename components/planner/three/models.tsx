@@ -1,7 +1,7 @@
 "use client";
 
-import { useFrame } from "@react-three/fiber";
-import { useRef } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import * as THREE from "three";
 import { byId, FRONT_T, FRONTS, HANDLES, TOP_Y } from "@/lib/planner/finishes";
 import { frontLayout, type FrontPanel } from "@/lib/planner/geometry";
@@ -20,12 +20,19 @@ export function C({ p, r, h, m, rot }: { p: V3; r: number; h: number; m: THREE.M
 /** Eases a value toward its target every frame (door swings, drawer slides). */
 function useEase(target: number, apply: (v: number) => void) {
   const v = useRef(target);
+  const invalidate = useThree((s) => s.invalidate);
+  const gl = useThree((s) => s.gl);
+  // Start in the right pose (e.g. an item loaded with its doors open).
+  useLayoutEffect(() => apply(v.current), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Rendering is on demand, so ask for frames while the animation runs.
+  useEffect(() => invalidate(), [target, invalidate]);
   useFrame((_, dt) => {
-    const next = v.current + (target - v.current) * Math.min(1, dt * 7);
-    if (Math.abs(next - v.current) > 1e-5 || Math.abs(target - v.current) > 1e-5) {
-      v.current = Math.abs(target - next) < 1e-4 ? target : next;
-      apply(v.current);
-    }
+    if (v.current === target) return;
+    const next = v.current + (target - v.current) * Math.min(1, Math.min(dt, 1 / 30) * 7);
+    v.current = Math.abs(target - next) < 1e-4 ? target : next;
+    apply(v.current);
+    gl.shadowMap.needsUpdate = true;
+    invalidate();
   });
 }
 
@@ -33,7 +40,7 @@ export type Look = { front: string; handle: string; carcass: string };
 
 // ---------------------------------------------------------------- handles
 
-function Handle({ id, w, h, at, orient }: { id: string; w: number; h: number; at: "top" | "bottom" | "free-l" | "free-r" | "center-top" | "center-bottom"; orient: "h" | "v" }) {
+function Handle({ id, w, h, at, orient, low = false }: { id: string; w: number; h: number; at: "top" | "bottom" | "free-l" | "free-r" | "center-top" | "center-bottom"; orient: "h" | "v"; low?: boolean }) {
   const hd = byId(HANDLES, id);
   const m = handleMaterial(id);
   if (hd.type === "none") return null;
@@ -54,7 +61,8 @@ function Handle({ id, w, h, at, orient }: { id: string; w: number; h: number; at
   if (at === "free-r") x = w / 2 - inset;
   const vlen = orient === "v" ? Math.min(h - 80, h > 1000 ? 420 : 192) : 0;
   const hlen = orient === "h" ? Math.min(w - 80, w >= 600 ? 320 : 160) : 0;
-  if (at === "top" || at === "free-l" || at === "free-r") y = h / 2 - inset - vlen / 2;
+  if (at === "top" || ((at === "free-l" || at === "free-r") && !low)) y = h / 2 - inset - vlen / 2;
+  if ((at === "free-l" || at === "free-r") && low) y = -h / 2 + inset + vlen / 2;
   if (at === "bottom") y = -h / 2 + inset + vlen / 2;
   if (at === "center-top") y = h / 2 - 40;
   if (at === "center-bottom") y = -h / 2 + 40;
@@ -129,7 +137,7 @@ function Front({ f, bodyW, baseY, depth, look, open, absY }: { f: FrontPanel; bo
   const handleAt =
     f.kind === "drawer" || f.kind === "dish" || f.kind === "pull" ? "center-top" : f.kind === "lift" ? "center-bottom"
       : f.hinge === "l" ? "free-r" : f.hinge === "r" ? "free-l" : centreAbove ? "bottom" : "top";
-  const handle = <Handle id={f.kind === "appDoor" ? "bar-steel" : look.handle} w={w} h={h} at={handleAt} orient={orient} />;
+  const handle = <Handle id={f.kind === "appDoor" ? "bar-steel" : look.handle} w={w} h={h} at={handleAt} orient={orient} low={centreAbove && f.kind !== "appDoor"} />;
 
   if (f.kind === "oven" || f.kind === "micro") {
     return (
@@ -216,7 +224,41 @@ function Hob({ w, d, gas = false }: { w: number; d: number; gas?: boolean }) {
   );
 }
 
+/**
+ * L-shaped corner unit, drawn with its second arm on the -x side and mirrored when needed.
+ * One door on each inner face, hinged at the outer ends so both open away from the corner.
+ */
+function CornerCabinet({ p, w, d, h, look, open, mirror, absY }: { p: Product; w: number; d: number; h: number; look: Look; open: boolean; mirror: boolean; absY: number }) {
+  const a = p.arm ?? 560;
+  const bodyH = h - p.plinth;
+  const y = p.plinth;
+  const c = a - FRONT_T; // carcass depth behind the doors
+  const side = carcassMaterial(look.carcass, look.front);
+  const doorA: FrontPanel = { kind: "door", x0: 0, x1: w - a, y0: 0, y1: bodyH, hinge: "r" };
+  const doorB: FrontPanel = { kind: "door", x0: 0, x1: d - a, y0: 0, y1: bodyH, hinge: "l" };
+  const pd = a - 70; // plinths are recessed
+  return (
+    <group scale-x={mirror ? -1 : 1}>
+      {p.plinth > 0 && (
+        <>
+          <B p={[0, p.plinth / 2, -d / 2 + pd / 2]} s={[w - 4, p.plinth, pd]} m={M.plinth} />
+          <B p={[-w / 2 + pd / 2, p.plinth / 2, (-d / 2 + pd + d / 2 - 4) / 2]} s={[pd, p.plinth, d - pd - 4]} m={M.plinth} />
+        </>
+      )}
+      <B p={[0, y + bodyH / 2, -d / 2 + c / 2]} s={[w, bodyH, c]} m={side} />
+      <B p={[-w / 2 + c / 2, y + bodyH / 2, (-d / 2 + c + d / 2) / 2]} s={[c, bodyH, d - c]} m={side} />
+      <group position={[a / 2, 0, -d / 2 + a]}>
+        <Front f={doorA} bodyW={w - a} baseY={y} depth={0} look={look} open={open} absY={absY} />
+      </group>
+      <group position={[-w / 2 + a, 0, a / 2]} rotation-y={Math.PI / 2}>
+        <Front f={doorB} bodyW={d - a} baseY={y} depth={0} look={look} open={open} absY={absY} />
+      </group>
+    </group>
+  );
+}
+
 export function Cabinet({ p, w, d, h, look, open, mirror, absY }: { p: Product; w: number; d: number; h: number; look: Look; open: boolean; mirror: boolean; absY: number }) {
+  if (p.model === "cornerL") return <CornerCabinet p={p} w={w} d={d} h={h} look={look} open={open} mirror={mirror} absY={absY} />;
   const T = 18;
   const bodyH = h - p.plinth;
   const y = p.plinth;
@@ -412,6 +454,16 @@ export function Furniture({ p, w, d, h, color, ceiling, y0 }: { p: Product; w: n
           <C p={[-50, 60, 0]} r={14} h={120} m={M.steel} />
           <C p={[50, 60, 0]} r={14} h={120} m={M.steel} />
           <C p={[0, 20, 0]} r={26} h={40} m={M.rubber} />
+        </group>
+      );
+    case "ledStrip":
+      // Aluminium channel; the glowing diffuser is drawn by the lighting layer.
+      return <B p={[0, h / 2 + 3, 0]} s={[w, h, d]} m={M.darkSteel} />;
+    case "downlight":
+      return (
+        <group>
+          <C p={[0, h - 4, 0]} r={w / 2} h={8} m={M.frame} />
+          <C p={[0, h - 9, 0]} r={w / 2 - 14} h={2} m={M.bulb} />
         </group>
       );
   }

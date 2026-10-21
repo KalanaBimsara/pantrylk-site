@@ -1,8 +1,10 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { FRONTS } from "@/lib/planner/finishes";
 import type { Product } from "@/lib/types";
 import { priceLabel } from "@/lib/format";
 import { whatsappHref, WA_MESSAGES } from "@/lib/whatsapp";
@@ -11,20 +13,43 @@ import Lightbox from "./Lightbox";
 
 type AppInfo = { href: string; external: boolean; available: boolean };
 
-export default function ProductShowcase({ product, whatsappNumber, planner, quote, newTab }: { product: Product; whatsappNumber: string; planner: AppInfo; quote: AppInfo; newTab: boolean }) {
+/** A standard unit backed by a Kitchen Planner model: sizes with prices, and a live 3D view. */
+export type UnitInfo = { plannerId: string; showWidth: number; sizes: { width: number; label: string; dims: string; price: number }[] };
+
+const ProductViewer = dynamic(() => import("./planner/ProductViewer"), {
+  ssr: false,
+  loading: () => <div className="grid h-full place-items-center text-[14px] text-muted">Loading 3D view…</div>,
+});
+
+const lkr = new Intl.NumberFormat("en-LK", { maximumFractionDigits: 0 });
+
+export default function ProductShowcase({ product, whatsappNumber, planner, quote, newTab, unit }: { product: Product; whatsappNumber: string; planner: AppInfo; quote: AppInfo; newTab: boolean; unit?: UnitInfo }) {
   const [idx, setIdx] = useState(0);
   const [finish, setFinish] = useState(0);
   const [zoom, setZoom] = useState(false);
   const [inquiry, setInquiry] = useState(false);
+  const [view3d, setView3d] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [sizeIdx, setSizeIdx] = useState(() => Math.max(0, unit?.sizes.findIndex((s) => s.width === unit.showWidth) ?? 0));
+  const size = unit?.sizes[sizeIdx];
   const img = product.images[idx];
   const finishName = product.finishes[finish]?.name;
-  const message = WA_MESSAGES.product(product.name, finishName);
+  const front = FRONTS.find((f) => f.name === finishName)?.id ?? "matte-white";
+  const message = WA_MESSAGES.product(size ? `${product.name} (${size.dims})` : product.name, finishName);
   const ext = (a: AppInfo) => (a.external && newTab ? { target: "_blank", rel: "noopener noreferrer" } : {});
 
   return (
     <section className="wrap flex flex-wrap gap-x-18 gap-y-14 pb-24">
       <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-3.5">
-        {img ? (
+        {unit && view3d ? (
+          <div className="relative aspect-[4/4.4] overflow-hidden bg-stone">
+            <ProductViewer plannerId={unit.plannerId} width={size?.width ?? unit.showWidth} front={front} open={open} />
+            <div className="pointer-events-none absolute inset-x-3.5 bottom-3.5 flex items-end justify-between gap-3">
+              <span className="bg-ivory/90 px-2.5 py-1.5 text-[12.5px] text-ink-2">Drag to turn · scroll or pinch to zoom</span>
+              <button type="button" onClick={() => setOpen((o) => !o)} className="btn btn-light pointer-events-auto !min-h-10 !px-4 !text-[13.5px]">{open ? "Close doors" : "Open doors"}</button>
+            </div>
+          </div>
+        ) : img ? (
           <button type="button" onClick={() => setZoom(true)} aria-label="Enlarge photo" className="relative aspect-[4/4.4] cursor-zoom-in overflow-hidden bg-stone">
             <Image src={img.src} alt={img.alt} fill priority sizes="(max-width: 1100px) 100vw, 60vw" className="object-cover" />
             <span className="absolute bottom-3.5 right-3.5 inline-flex h-11 w-11 items-center justify-center bg-ivory"><ExpandIcon /></span>
@@ -32,10 +57,16 @@ export default function ProductShowcase({ product, whatsappNumber, planner, quot
         ) : (
           <div className="slot aspect-[4/4.4]">Product photo coming soon</div>
         )}
-        {product.images.length > 1 && (
+        {(product.images.length > 1 || unit) && (
           <div role="group" aria-label="Product photos" className="grid grid-cols-4 gap-3">
+            {unit && (
+              <button type="button" onClick={() => setView3d(true)} aria-pressed={view3d} aria-label="Show interactive 3D view" className={`flex aspect-square flex-col items-center justify-center gap-1 bg-navy text-ivory ${view3d ? "outline-2 outline-offset-2 outline-gold" : ""}`}>
+                <span className="display text-[22px]">3D</span>
+                <span className="text-[11.5px]">Turn &amp; open</span>
+              </button>
+            )}
             {product.images.map((im, i) => (
-              <button key={im.src + i} type="button" onClick={() => setIdx(i)} aria-pressed={i === idx} aria-label={`Show photo ${i + 1}`} className={`relative aspect-square overflow-hidden bg-stone ${i === idx ? "outline-2 outline-navy" : ""}`}>
+              <button key={im.src + i} type="button" onClick={() => { setIdx(i); setView3d(false); }} aria-pressed={!view3d && i === idx} aria-label={`Show photo ${i + 1}`} className={`relative aspect-square overflow-hidden bg-stone ${!view3d && i === idx ? "outline-2 outline-navy" : ""}`}>
                 <Image src={im.src} alt="" fill sizes="120px" className="object-cover" />
               </button>
             ))}
@@ -49,10 +80,29 @@ export default function ProductShowcase({ product, whatsappNumber, planner, quot
           <h1 className="display text-[clamp(34px,3.8vw,52px)] leading-[1.02]">{product.name}</h1>
           {product.description && <p className="text-[17px] text-ink-2">{product.description}</p>}
         </div>
-        <div className="flex items-baseline justify-between border-y border-line py-4">
-          <span className="text-[20px] font-semibold">{priceLabel(product.priceMode, product.price)}</span>
-          <span className="text-[14px] text-muted">Made to measure</span>
-        </div>
+        {unit && size ? (
+          <div className="flex flex-col gap-3.5 border-y border-line py-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-[20px] font-semibold">LKR {lkr.format(size.price)}</span>
+              <span className="text-right text-[14px] text-muted">{size.dims}</span>
+            </div>
+            {unit.sizes.length > 1 && (
+              <div role="group" aria-label="Size" className="flex flex-wrap gap-2">
+                {unit.sizes.map((s, i) => (
+                  <button key={s.width} type="button" aria-pressed={i === sizeIdx} onClick={() => setSizeIdx(i)} className={`h-10 min-w-16 border px-3 text-[14px] font-semibold tabular-nums ${i === sizeIdx ? "border-navy bg-navy text-ivory" : "border-line bg-white hover:border-navy"}`}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-[13px] text-muted">Priced at LKR 7,100 per sq ft of front (width × height). Worktop not included.</p>
+          </div>
+        ) : (
+          <div className="flex items-baseline justify-between border-y border-line py-4">
+            <span className="text-[20px] font-semibold">{priceLabel(product.priceMode, product.price)}</span>
+            <span className="text-[14px] text-muted">Made to measure</span>
+          </div>
+        )}
         {product.finishes.length > 0 && (
           <fieldset>
             <legend className="mb-3.5 text-[15px] font-semibold">Finish: <span className="font-normal">{finishName}</span></legend>

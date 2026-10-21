@@ -5,15 +5,22 @@ import {
   addOpening, addProduct, duplicateItem, removeSelection, replaceProduct, rotateItem, setCeiling, setItem, setItemChecked, setOpening, setRoomShape, toggleOpen,
 } from "@/lib/planner/actions";
 import { getProduct, itemCode, OPENING_PRESETS, PRODUCTS, productsIn, searchProducts } from "@/lib/planner/catalog";
-import { byId, CARCASSES, FLOORS, FRONTS, HANDLES, WALL_COLORS, WORKTOPS } from "@/lib/planner/finishes";
-import { frontLayout, isCabinetModel, itemDims, itemOnWall, roomArea, roomWalls, wallPoint } from "@/lib/planner/geometry";
+import { byId, CARCASSES, FLOORS, FRONTS, HANDLES, LIGHT_ZONES, TOP_EDGES, WALL_COLORS, WORKTOPS } from "@/lib/planner/finishes";
+import { frontLayout, isCabinetModel, itemDims, itemOnWall, roomArea, roomWalls, wallPoint, worktopRuns } from "@/lib/planner/geometry";
+import { zonesFor } from "@/lib/planner/lighting";
+import { cabinetPrice, formatLKR } from "@/lib/planner/pricing";
 import { estimate, partsList } from "@/lib/planner/review";
 import { command, getState, setUI, update, usePlanner } from "@/lib/planner/store";
 import type { Item, OpeningType, Panel, Product, RoomShape } from "@/lib/planner/types";
 import { ProductThumb } from "./Plans";
-import { Chip, frontSwatchStyle, Icon, mmLabel, NumberField, SectionTitle, Swatch } from "./ui";
+import { LightsPanel, TopsPanel } from "./TopsLights";
+import { Chip, frontSwatchStyle, Icon, mmLabel, NumberField, SectionTitle, Swatch, topSwatchStyle } from "./ui";
 
 const lkr = new Intl.NumberFormat("en-LK", { maximumFractionDigits: 0 });
+
+export function PanelShell(props: { title: string; crumbs?: string; onBack?: () => void; children: React.ReactNode }) {
+  return <Shell {...props} />;
+}
 
 function Shell({ title, crumbs, onBack, children }: { title: string; crumbs?: string; onBack?: () => void; children: React.ReactNode }) {
   return (
@@ -64,7 +71,10 @@ function ProductCard({ p, onPick, cta = "Add" }: { p: Product; onPick: (w: numbe
           <p className="text-[12px] tabular-nums text-ink-2">{p.resizable ? "Resizable" : `${mmLabel(w)} wide`}</p>
         )}
         <div className="mt-auto flex items-center justify-between">
-          <span className="text-[12px] text-ink-2">{p.price != null ? `LKR ${lkr.format(Math.round((p.price * w) / p.widths[0]))}` : `${Math.round(w / 10)}×${Math.round(p.depth / 10)}×${Math.round((p.fullHeight ? 2400 : p.height) / 10)}`}</span>
+          <span className="flex flex-col text-[12px] leading-tight text-ink-2">
+            <span className="tabular-nums">{w}×{p.fullHeight ? 2400 : p.height - p.plinth}×{p.depth} mm</span>
+            {cabinetPrice(p, w) != null && <span className="font-bold tabular-nums text-navy">{formatLKR(cabinetPrice(p, w)!)}</span>}
+          </span>
           <button type="button" onClick={() => onPick(w)} className="h-8 rounded-[2px] bg-navy px-3 text-[12.5px] font-semibold text-ivory hover:bg-navy-2">
             {cta}
           </button>
@@ -126,10 +136,11 @@ export function itemActions(it: Item, p: Product) {
     { id: "position", label: "Position", icon: "position", run: () => setUI({ panel: { kind: "selected", tab: "position" } }) },
     { id: "duplicate", label: "Duplicate", icon: "duplicate", run: () => duplicateItem(it.id) },
     { id: "remove", label: "Remove", icon: "trash", run: () => removeSelection() },
-  ].filter((a) => !a.hide);
+  ].filter((a) => !a.hide && !(getState().ui.locked && ["replace", "position", "duplicate", "remove"].includes(a.id)));
 }
 
 function ActionRow({ it, p }: { it: Item; p: Product }) {
+  usePlanner((s) => s.ui.locked); // re-render when the layout lock changes the available actions
   return (
     <div className="flex flex-wrap gap-0.5">
       {itemActions(it, p).map((a) => (
@@ -232,6 +243,37 @@ function SelectedPanel({ tab }: { tab: "modify" | "position" | "replace" }) {
                 {hasHinge && <button type="button" onClick={() => setItem(it.id, { mirror: !it.mirror })} className="btn btn-outline !min-h-10 !px-4 !text-[13px]"><Icon name="flip" size={16} /> Flip hinge side</button>}
                 <button type="button" onClick={() => toggleOpen(it.id)} className="btn btn-outline !min-h-10 !px-4 !text-[13px]"><Icon name="door" size={16} /> {it.open ? "Close fronts" : "Open fronts"}</button>
               </div>
+            )}
+            {p.worktop && (() => {
+              const run = worktopRuns(d).find((r) => r.ids.includes(it.id));
+              if (!run) return null;
+              const w = byId(WORKTOPS, run.spec.material);
+              return (
+                <>
+                  <SectionTitle>Pantry top for this section</SectionTitle>
+                  <button type="button" onClick={() => setUI({ sel: { type: "top", id: run.ref }, panel: { kind: "tops" } })} className="flex w-full items-center gap-3 border border-line p-2.5 text-left hover:border-navy">
+                    <span className="h-9 w-12 shrink-0 ring-1 ring-black/10" style={topSwatchStyle(w)} />
+                    <span className="min-w-0 flex-1 text-[13px]"><span className="block font-semibold">{w.name}</span><span className="text-[12px] text-muted">{run.spec.thickness} mm · {(run.len / 1000).toFixed(2)} m section</span></span>
+                    <Icon name="chevron" size={16} />
+                  </button>
+                </>
+              );
+            })()}
+            {(zonesFor(p).length > 0 || p.model === "pendant" || p.model === "downlight") && (
+              <>
+                <SectionTitle>LED lighting</SectionTitle>
+                <div className="flex flex-wrap gap-1.5">
+                  {zonesFor(p).some((z) => z !== "custom") && <Chip active={!it.light} onClick={() => setItem(it.id, { light: undefined })}>Follow kitchen</Chip>}
+                  <Chip active={it.light === "on" || (!it.light && !zonesFor(p).some((z) => z !== "custom"))} onClick={() => setItem(it.id, { light: "on" })}>On</Chip>
+                  <Chip active={it.light === "off"} onClick={() => setItem(it.id, { light: "off" })}>Off</Chip>
+                </div>
+                {zonesFor(p).some((z) => z !== "custom") && (
+                  <p className="mt-2 text-[12px] text-muted">
+                    Strips here: {zonesFor(p).map((z) => LIGHT_ZONES.find((x) => x.id === z)?.name.toLowerCase()).join(", ")}.{" "}
+                    <button type="button" className="font-semibold text-[#2f7be0] hover:underline" onClick={() => setUI({ panel: { kind: "lights" } })}>Kitchen lighting</button>
+                  </p>
+                )}
+              </>
             )}
           </>
         )}
@@ -448,13 +490,15 @@ function StylePanel() {
           </button>
         ))}
       </div>
-      <SectionTitle>Worktop</SectionTitle>
-      <div className="grid grid-cols-4 gap-x-2 gap-y-3">
-        {WORKTOPS.map((w) => (
-          <Swatch key={w.id} label={w.name} active={style.worktop === w.id} onClick={() => set({ worktop: w.id })}
-            style={w.surface === "wood" ? { background: `repeating-linear-gradient(90deg, ${w.color} 0 6px, ${w.vein} 6px 7px)` } : w.surface === "marble" ? { background: `linear-gradient(120deg, transparent 40%, ${w.vein} 41%, transparent 43%), linear-gradient(40deg, transparent 60%, ${w.vein}88 61%, transparent 62%), ${w.color}` } : { background: `radial-gradient(${w.vein} 1px, transparent 1.5px) 0 0/5px 5px, ${w.color}` }} />
-        ))}
-      </div>
+      <SectionTitle>Pantry tops</SectionTitle>
+      <button type="button" onClick={() => setUI({ sel: null, panel: { kind: "tops" } })} className="flex w-full items-center gap-3 border border-line p-2.5 text-left hover:border-navy">
+        <span className="h-10 w-14 shrink-0 ring-1 ring-black/10" style={topSwatchStyle(byId(WORKTOPS, style.worktop))} />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13.5px] font-semibold">{byId(WORKTOPS, style.worktop).name}</span>
+          <span className="block text-[12px] text-muted">{style.topThickness} mm · {TOP_EDGES.find((e) => e.id === style.topEdge)?.name} edge</span>
+        </span>
+        <Icon name="chevron" size={16} />
+      </button>
       <SectionTitle>Cabinet sides</SectionTitle>
       <div className="flex gap-1.5">
         {CARCASSES.map((c) => <Chip key={c.id} active={style.carcass === c.id} onClick={() => set({ carcass: c.id })}>{c.name}</Chip>)}
@@ -482,6 +526,7 @@ function ListPanel() {
               type="button"
               className="flex w-full items-start gap-3 py-2.5 text-left hover:bg-ivory"
               onClick={() => {
+                if (l.code === "TOP" || l.code === "LED") return setUI({ sel: null, panel: { kind: l.code === "TOP" ? "tops" : "lights" } });
                 const it = d.items.find((i) => i.product === l.productId);
                 if (it) {
                   setUI({ sel: { type: "item", id: it.id } });
@@ -500,7 +545,12 @@ function ListPanel() {
         ))}
       </ul>
       <p className="mt-4 text-[13px] text-ink-2">
-        {total != null ? <>Indicative total <strong>LKR {lkr.format(total)}</strong>. Final price confirmed in your quotation.</> : "Prices are confirmed in your quotation from Pantry LK."}
+        {total ? (
+          <>
+            Estimated total <strong>LKR {lkr.format(total.total)}</strong>
+            {total.unpriced > 0 && <> plus {total.unpriced} item{total.unpriced === 1 ? "" : "s"} quoted separately</>}. Cabinets are LKR 7,100 per sq ft of front; granite LKR 3,200 per sq ft.
+          </>
+        ) : "Prices are confirmed in your quotation from Pantry LK."}
       </p>
     </Shell>
   );
@@ -524,6 +574,10 @@ export function SidePanel() {
       return <OpeningsPanel type={panel.type} />;
     case "style":
       return <StylePanel />;
+    case "tops":
+      return <TopsPanel />;
+    case "lights":
+      return <LightsPanel />;
     case "list":
       return <ListPanel />;
   }

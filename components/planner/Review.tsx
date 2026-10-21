@@ -98,7 +98,7 @@ export default function Review({ contact }: { contact: ContactProps }) {
             <h2 className="border-b border-line px-4 py-3 text-[16px] font-bold">Item list</h2>
             <table className="w-full text-[13.5px]">
               <thead className="text-left text-[12px] uppercase tracking-[0.08em] text-muted">
-                <tr><th className="px-4 py-2 font-semibold">Qty</th><th className="py-2 font-semibold">Item</th><th className="hidden py-2 font-semibold sm:table-cell">Code</th><th className="px-4 py-2 text-right font-semibold">{total != null ? "Price" : ""}</th></tr>
+                <tr><th className="px-4 py-2 font-semibold">Qty</th><th className="py-2 font-semibold">Item</th><th className="hidden py-2 font-semibold sm:table-cell">Code</th><th className="px-4 py-2 text-right font-semibold">{total ? "Price" : ""}</th></tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {lines.map((l) => (
@@ -127,8 +127,12 @@ export default function Review({ contact }: { contact: ContactProps }) {
             <p className="mt-1 text-[13px] text-muted">{d.room.shape.width / 1000} × {d.room.shape.depth / 1000} m · {roomArea(d.room.shape).toFixed(1)} m² · {d.items.length} items</p>
           </div>
           <div className="border-y border-line py-3">
-            {total != null ? (
-              <p className="text-[13px] text-ink-2">Indicative total <span className="block text-[24px] font-bold text-navy">LKR {lkr.format(total)}</span></p>
+            {total ? (
+              <p className="text-[13px] text-ink-2">
+                Estimated total <span className="block text-[24px] font-bold text-navy">LKR {lkr.format(total.total)}</span>
+                Cabinets at LKR 7,100 / sq ft of front, granite at LKR 3,200 / sq ft (rounded up to whole feet).
+                {total.unpriced > 0 && <span className="mt-1 block text-muted">{total.unpriced} item{total.unpriced === 1 ? "" : "s"} (appliances, other tops, lighting…) quoted separately.</span>}
+              </p>
             ) : (
               <p className="text-[13.5px] text-ink-2">Every Pantry LK kitchen is made to measure — send your design and we&apos;ll prepare a detailed quotation.</p>
             )}

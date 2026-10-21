@@ -59,13 +59,36 @@ function surfaceTexture(surface: Surface, base: string, vein: string, seed = 7) 
       g.globalAlpha = 1;
     }, seed);
   if (surface === "speckle")
-    return canvas(512, (g, r) => {
+    // Granite / quartz grain: soft mottling, then thousands of small round crystals in a few tones.
+    return canvas(1024, (g, r) => {
       g.fillStyle = base;
-      g.fillRect(0, 0, 512, 512);
-      for (let i = 0; i < 2600; i++) {
-        g.fillStyle = r() > 0.5 ? vein : "#ffffff";
-        g.globalAlpha = 0.15 + r() * 0.5;
-        g.fillRect(r() * 512, r() * 512, 1 + r() * 2.5, 1 + r() * 2.5);
+      g.fillRect(0, 0, 1024, 1024);
+      for (let i = 0; i < 160; i++) {
+        g.fillStyle = r() > 0.5 ? "#ffffff" : "#000000";
+        g.globalAlpha = 0.025 + r() * 0.04;
+        g.beginPath();
+        g.ellipse(r() * 1024, r() * 1024, 20 + r() * 70, 14 + r() * 50, r() * 3, 0, 7);
+        g.fill();
+      }
+      const tones = [vein, "#ffffff", vein, "#8d8f92", "#000000"];
+      for (let i = 0; i < 9000; i++) {
+        g.fillStyle = tones[Math.floor(r() * tones.length)];
+        g.globalAlpha = 0.2 + r() * 0.6;
+        g.beginPath();
+        g.ellipse(r() * 1024, r() * 1024, 0.5 + r() * 1.8, 0.4 + r() * 1.4, r() * 3, 0, 7);
+        g.fill();
+      }
+      g.globalAlpha = 1;
+    }, seed);
+  if (surface === "fine")
+    // Solid-surface "sand" look: many tiny, low-contrast flecks.
+    return canvas(1024, (g, r) => {
+      g.fillStyle = base;
+      g.fillRect(0, 0, 1024, 1024);
+      for (let i = 0; i < 14000; i++) {
+        g.fillStyle = r() > 0.35 ? vein : "#ffffff";
+        g.globalAlpha = 0.12 + r() * 0.3;
+        g.fillRect(r() * 1024, r() * 1024, 1 + r() * 1.2, 1 + r() * 1.2);
       }
       g.globalAlpha = 1;
     }, seed);
@@ -104,8 +127,12 @@ export const worktopMaterial = (id: string) =>
       map.center.set(0.5, 0.5);
       map.rotation = Math.PI / 2;
     }
-    return new THREE.MeshStandardMaterial({ color: map ? "#ffffff" : w.color, map, roughness: w.rough, envMapIntensity: 0.9 });
+    return new THREE.MeshStandardMaterial({ color: map ? "#ffffff" : w.color, map, roughness: w.rough, metalness: w.metal ?? 0, envMapIntensity: w.metal ? 1.2 : 0.9 });
   });
+
+/** Self-lit LED diffuser; brighter than white so it reads as glowing. */
+export const ledMaterial = (hex: string, boost: number) =>
+  memo(`led:${hex}:${boost}`, () => new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(boost), toneMapped: false }));
 
 export const floorMaterial = (id: string) =>
   memo(`floor:${id}`, () => {
@@ -182,7 +209,8 @@ export const M = {
   get steel() { return memo("steel", () => new THREE.MeshStandardMaterial({ color: "#c9ccce", metalness: 0.85, roughness: 0.32 })); },
   get darkSteel() { return memo("darkSteel", () => new THREE.MeshStandardMaterial({ color: "#6d7175", metalness: 0.8, roughness: 0.4 })); },
   get blackGlass() { return memo("blackGlass", () => new THREE.MeshStandardMaterial({ color: "#121315", metalness: 0.2, roughness: 0.08 })); },
-  get glass() { return memo("glass", () => new THREE.MeshPhysicalMaterial({ color: "#dfeef5", roughness: 0.05, transmission: 0.9, transparent: true, opacity: 0.35, thickness: 4 })); },
+  // Plain transparent glass: physical transmission would re-render the whole scene every frame.
+  get glass() { return memo("glass", () => new THREE.MeshStandardMaterial({ color: "#dfeef5", roughness: 0.04, metalness: 0.1, transparent: true, opacity: 0.3, envMapIntensity: 1.4, depthWrite: false })); },
   get white() { return memo("white", () => new THREE.MeshStandardMaterial({ color: "#f4f4f2", roughness: 0.5 })); },
   get frame() { return memo("frame", () => new THREE.MeshStandardMaterial({ color: "#fbfbfa", roughness: 0.6 })); },
   get black() { return memo("black", () => new THREE.MeshStandardMaterial({ color: "#1b1c1e", roughness: 0.5 })); },

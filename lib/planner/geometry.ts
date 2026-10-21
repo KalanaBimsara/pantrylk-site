@@ -1,6 +1,6 @@
 import { getProduct } from "./catalog";
-import { TOP_D, WALL_T } from "./finishes";
-import type { Design, Item, Opening, Product, Room, RoomShape, Vec2 } from "./types";
+import { SPLASH_FULL, SPLASH_LOW, TOP_D, TOP_Y, WALL_T } from "./finishes";
+import type { Design, Item, KitchenStyle, Opening, Product, Room, RoomShape, TopSpec, Vec2 } from "./types";
 
 const add = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x + b.x, z: a.z + b.z });
 const sub = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x - b.x, z: a.z - b.z });
@@ -211,7 +211,7 @@ export function findCollision(design: Design, item: Item, walls?: Wall[]): Colli
 }
 
 /** Snap a dragged item to the nearest wall and to neighbouring edges. */
-export function snapItem(design: Design, item: Item, desired: Vec2, walls: Wall[]): Pick<Item, "x" | "z" | "rot"> {
+export function snapItem(design: Design, item: Item, desired: Vec2, walls: Wall[]): Pick<Item, "x" | "z" | "rot" | "mirror"> {
   const p = getProduct(item.product)!;
   const dm = itemDims(item, p, design.room);
   const b = bounds(roomPolygon(design.room.shape));
@@ -249,11 +249,11 @@ export function snapItem(design: Design, item: Item, desired: Vec2, walls: Wall[
     }
   u = clampU(u + shift);
   const pos = wallPoint(w, u, dm.d / 2 + 0.5);
-  return { x: pos.x, z: pos.z, rot: w.rot };
+  return { x: pos.x, z: pos.z, rot: w.rot, ...(p.model === "cornerL" ? { mirror: u > w.len / 2 } : {}) };
 }
 
 /** Find the first free spot for a new item, the way the planner fills walls left to right. */
-export function autoPlace(design: Design, product: Product, width: number, after?: { wall: number; u: number }): Pick<Item, "x" | "z" | "rot"> {
+export function autoPlace(design: Design, product: Product, width: number, after?: { wall: number; u: number }): Pick<Item, "x" | "z" | "rot" | "mirror"> {
   const walls = roomWalls(design.room.shape);
   const probe: Item = { id: "__probe", product: product.id, x: 0, z: 0, rot: 0, width };
   const dm = itemDims(probe, product, design.room);
@@ -273,12 +273,15 @@ export function autoPlace(design: Design, product: Product, width: number, after
       for (const o of design.openings) if (o.wall === wi) starts.add(o.offset + o.width / 2);
       let list = [...starts].sort((a, c) => a - c);
       if (after && after.wall === wi) list = [after.u, ...list.filter((s) => s >= after.u), ...list.filter((s) => s < after.u)];
+      // Corner units only make sense in a corner.
+      if (product.model === "cornerL") list = [0, w.len - dm.w];
       for (const s of list) {
         const u = s + dm.w / 2;
-        if (u + dm.w / 2 > w.len + 0.1) continue;
+        if (u + dm.w / 2 > w.len + 0.1 || u < dm.w / 2 - 0.1) continue;
         const pos = wallPoint(w, u, dm.d / 2 + 0.5);
-        const test = { ...probe, x: pos.x, z: pos.z, rot: w.rot };
-        if (!findCollision(design, test, walls)) return { x: pos.x, z: pos.z, rot: w.rot };
+        const mirror = product.model === "cornerL" ? u > w.len / 2 : undefined;
+        const test = { ...probe, x: pos.x, z: pos.z, rot: w.rot, mirror };
+        if (!findCollision(design, test, walls)) return { x: pos.x, z: pos.z, rot: w.rot, ...(mirror != null ? { mirror } : {}) };
       }
     }
   }
@@ -294,39 +297,141 @@ export function autoPlace(design: Design, product: Product, width: number, after
 
 // ---------------------------------------------------------------- worktops
 
-export type Run = { x: number; z: number; rot: number; len: number; depth: number };
+export type Run = {
+  x: number; z: number; rot: number; len: number; depth: number;
+  /** Base units under this section, in order along the run. */
+  ids: string[];
+  /** A unit that belongs only to this section (corner units sit in two), used to select it. */
+  ref: string;
+  spec: TopSpec;
+  /** Wall the section's back sits against, with its start position along that wall. */
+  wall: number | null;
+  wallU: number;
+};
 
-export function worktopRuns(design: Pick<Design, "items" | "room">): Run[] {
-  type Seg = { rot: number; back: number; u0: number; u1: number };
+export function resolveTop(style: KitchenStyle, o?: Partial<TopSpec>): TopSpec {
+  return {
+    material: o?.material ?? style.worktop,
+    thickness: o?.thickness ?? style.topThickness,
+    edge: o?.edge ?? style.topEdge,
+    splash: o?.splash ?? style.splash,
+  };
+}
+
+export function worktopRuns(design: Pick<Design, "items" | "room" | "style">): Run[] {
+  type Seg = { id: string; rot: number; back: number; u0: number; u1: number; top?: Partial<TopSpec> };
   const segs: Seg[] = [];
   for (const it of design.items) {
     const p = getProduct(it.product);
     if (!p?.worktop) continue;
-    const dm = itemDims(it, p, design.room);
-    const rot = Math.round((((it.rot % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) * 1000) / 1000;
-    const { ax, az } = axes(rot);
-    const u = dot(it, ax);
-    segs.push({ rot, back: dot(it, az) - dm.d / 2, u0: u - dm.w / 2, u1: u + dm.w / 2 });
+    for (const box of itemBoxes(it, p, itemDims(it, p, design.room))) {
+      const rot = Math.round((((box.rot % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) * 1000) / 1000;
+      const { ax, az } = axes(rot);
+      const u = dot(box, ax);
+      segs.push({ id: it.id, rot, back: dot(box, az) - box.d / 2, u0: u - box.w / 2, u1: u + box.w / 2, top: it.top });
+    }
   }
-  segs.sort((a, b) => a.rot - b.rot || a.back - b.back || a.u0 - b.u0);
+  const walls = roomWalls(design.room.shape);
   const runs: Run[] = [];
-  let cur: Seg | null = null;
+  let cur: (Seg & { ids: string[] }) | null = null;
   const flush = () => {
     if (!cur) return;
     const { ax, az } = axes(cur.rot);
     const c = add(mul(ax, (cur.u0 + cur.u1) / 2), mul(az, cur.back + TOP_D / 2));
-    runs.push({ x: c.x, z: c.z, rot: cur.rot, len: cur.u1 - cur.u0, depth: TOP_D });
+    // The first unit in a section with its own top decides the whole section.
+    const override = cur.ids.map((id) => segs.find((s) => s.id === id)?.top).find((t) => t && Object.keys(t).length);
+    const start = add(mul(ax, cur.u0), mul(az, cur.back));
+    const w = walls.find((x) => angleDiff(x.rot, cur!.rot) < 0.01 && Math.abs(dot(sub(start, x.a), x.n)) < 5);
+    runs.push({
+      x: c.x, z: c.z, rot: cur.rot, len: cur.u1 - cur.u0, depth: TOP_D, ids: cur.ids, ref: cur.ids[0],
+      spec: resolveTop(design.style, override),
+      wall: w ? w.i : null,
+      wallU: w ? dot(sub(start, w.a), w.dir) : 0,
+    });
   };
+  // Group units sharing a back line first (floating-point noise must not split them), then merge along it.
+  const lines: Seg[][] = [];
   for (const s of segs) {
-    if (cur && Math.abs(s.rot - cur.rot) < 0.002 && Math.abs(s.back - cur.back) < 5 && s.u0 <= cur.u1 + 3) {
-      cur.u1 = Math.max(cur.u1, s.u1);
-    } else {
-      flush();
-      cur = { ...s };
-    }
+    const line = lines.find((l) => Math.abs(l[0].rot - s.rot) < 0.002 && Math.abs(l[0].back - s.back) < 5);
+    if (line) line.push(s);
+    else lines.push([s]);
   }
-  flush();
+  for (const line of lines) {
+    line.sort((a, b) => a.u0 - b.u0);
+    cur = null;
+    for (const s of line) {
+      if (cur && s.u0 <= cur.u1 + 3) {
+        cur.u1 = Math.max(cur.u1, s.u1);
+        if (!cur.ids.includes(s.id)) cur.ids.push(s.id);
+      } else {
+        flush();
+        cur = { ...s, ids: [s.id] };
+      }
+    }
+    flush();
+  }
+  const uses = new Map<string, number>();
+  for (const r of runs) for (const id of r.ids) uses.set(id, (uses.get(id) ?? 0) + 1);
+  runs.forEach((r, k) => (r.ref = r.ids.find((id) => uses.get(id) === 1) ?? `${r.ids[0]}#${k}`));
   return runs;
+}
+
+/** The section a "top" selection points at: by its reference unit, else any section containing that unit. */
+export function findRun(runs: Run[], id: string) {
+  return runs.find((r) => r.ref === id) ?? runs.find((r) => r.ids.includes(id.split("#")[0]));
+}
+
+/** Splashback pieces along a section (run-local x from the run start), lowered under windows. */
+export function splashPieces(design: Pick<Design, "openings" | "room">, run: Run): { a: number; b: number; h: number }[] {
+  if (run.spec.splash === "none" || run.wall === null) return [];
+  const full = run.spec.splash === "full" ? SPLASH_FULL : SPLASH_LOW;
+  const cuts = design.openings
+    .filter((o) => o.wall === run.wall && o.sill < TOP_Y + full)
+    .map((o) => ({ a: o.offset - o.width / 2 - run.wallU, b: o.offset + o.width / 2 - run.wallU, h: Math.max(0, o.sill - TOP_Y) }))
+    .filter((c) => c.b > 0 && c.a < run.len)
+    .sort((x, y) => x.a - y.a);
+  const out: { a: number; b: number; h: number }[] = [];
+  let cursor = 0;
+  for (const c of cuts) {
+    const a = Math.max(cursor, c.a), b = Math.min(run.len, c.b);
+    if (a > cursor) out.push({ a: cursor, b: a, h: full });
+    if (b > a) out.push({ a, b, h: Math.min(full, c.h) });
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < run.len) out.push({ a: cursor, b: run.len, h: full });
+  return out.filter((s) => s.h > 5 && s.b - s.a > 1);
+}
+
+/**
+ * Length of slab actually cut for a section. Where two sections meet at a corner they overlap by a
+ * worktop depth; the longer one runs through the corner and the other is cut short against it.
+ */
+export function cutLength(r: Run, runs: Run[]): number {
+  const { ax, az } = axes(r.rot);
+  const cu = dot(r, ax), cv = dot(r, az);
+  const u0 = cu - r.len / 2, u1 = cu + r.len / 2, v0 = cv - r.depth / 2, v1 = cv + r.depth / 2;
+  let trim0 = 0, trim1 = 0;
+  runs.forEach((o, k) => {
+    if (o === r || Math.abs(Math.sin(o.rot - r.rot)) < 0.5) return;
+    // Only the losing section is trimmed: the longer one (or the earlier one on a tie) keeps the corner.
+    const keeps = o.len > r.len || (o.len === r.len && k < runs.indexOf(r));
+    if (!keeps) return;
+    const fp = footprint(o, o.rot, o.len, o.depth);
+    const us = fp.map((p) => dot(p, ax)), vs = fp.map((p) => dot(p, az));
+    if (Math.max(...vs) <= v0 + 1 || Math.min(...vs) >= v1 - 1) return;
+    const a = Math.max(u0, Math.min(...us)), b = Math.min(u1, Math.max(...us));
+    if (b - a <= 1) return;
+    if (a <= u0 + 1) trim0 = Math.max(trim0, b - u0);
+    else if (b >= u1 - 1) trim1 = Math.max(trim1, u1 - a);
+  });
+  return Math.max(0, r.len - trim0 - trim1);
+}
+
+/** Worktop thickness for every base unit that carries one, so plinths can absorb the difference. */
+export function topThicknessByItem(runs: Run[]) {
+  const m = new Map<string, number>();
+  for (const r of runs) for (const id of r.ids) m.set(id, r.spec.thickness);
+  return m;
 }
 
 // ---------------------------------------------------------------- fronts
@@ -371,13 +476,19 @@ export function frontLayout(p: Product, w: number, h: number, mirror = false): F
       out.push({ kind: "dish", x0: 0, x1: w, y0: 0, y1: h, hinge: "b" });
       break;
     case "corner": {
-      const dw = Math.min(450, w / 2);
+      // The blind part sits under the next run (560 deep + 40 clearance).
+      const dw = Math.max(150, w - 600);
       out.push({ kind: "blind", x0: 0, x1: w - dw, y0: 0, y1: h }, { kind: "door", x0: w - dw, x1: w, y0: 0, y1: h, hinge: "r" });
       break;
     }
     case "pullout":
       out.push({ kind: "pull", x0: 0, x1: w, y0: 0, y1: h });
       break;
+    case "cornerL": {
+      const a = p.arm ?? 560;
+      out.push({ kind: "blind", x0: 0, x1: a, y0: 0, y1: h }, { kind: "door", x0: a, x1: w, y0: 0, y1: h, hinge: "r" });
+      break;
+    }
     case "lift":
       if (h <= 420) out.push({ kind: "lift", x0: 0, x1: w, y0: 0, y1: h, hinge: "t" });
       else out.push({ kind: "lift", x0: 0, x1: w, y0: 0, y1: h / 2, hinge: "t" }, { kind: "lift", x0: 0, x1: w, y0: h / 2, y1: h, hinge: "t" });
@@ -413,6 +524,37 @@ export function frontLayout(p: Product, w: number, h: number, mirror = false): F
   if (mirror)
     return out.map((f) => ({ ...f, x0: w - f.x1, x1: w - f.x0, hinge: f.hinge === "l" ? "r" : f.hinge === "r" ? "l" : f.hinge }));
   return out;
+}
+
+/** A box the item occupies (centre, facing, width along, depth into the room). */
+export type Box = { x: number; z: number; rot: number; w: number; d: number };
+
+/**
+ * The item as one or two boxes: an L corner unit is an arm along its back wall plus an arm along
+ * the side wall it is mirrored towards. Worktops and LED strips follow these arms.
+ */
+export function itemBoxes(it: Item, p: Product, dm: Dims): Box[] {
+  if (p.model !== "cornerL") return [{ x: it.x, z: it.z, rot: it.rot, w: dm.w, d: dm.d }];
+  const a = p.arm ?? 560;
+  const { ax, az } = axes(it.rot);
+  const s = it.mirror ? 1 : -1;
+  const back = add(it, mul(az, -dm.d / 2 + a / 2));
+  const side = add(it, mul(ax, s * (dm.w / 2 - a / 2)));
+  return [
+    { x: back.x, z: back.z, rot: it.rot, w: dm.w, d: a },
+    { x: side.x, z: side.z, rot: it.rot - s * (Math.PI / 2), w: dm.d, d: a },
+  ];
+}
+
+/** Plan outline: L-shaped for corner units, otherwise the footprint rectangle. */
+export function itemOutline(it: Item, p: Product, dm: Dims): Vec2[] {
+  if (p.model !== "cornerL") return footprint(it, it.rot, dm.w, dm.d);
+  const a = p.arm ?? 560;
+  const { ax, az } = axes(it.rot);
+  const s = it.mirror ? -1 : 1;
+  const P = (lx: number, lz: number) => add(it, add(mul(ax, s * lx), mul(az, lz)));
+  const W = dm.w / 2, D = dm.d / 2;
+  return [P(-W, -D), P(W, -D), P(W, -D + a), P(-W + a, -D + a), P(-W + a, D), P(-W, D)];
 }
 
 export const isCabinetModel = (p: Product) => p.group === "cabinets" && p.model !== "hood";

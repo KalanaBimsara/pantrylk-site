@@ -1,15 +1,33 @@
 "use client";
 
 import { getProduct, presetOf } from "./catalog";
+import { BASE_D } from "./finishes";
 import { autoPlace, findCollision, itemDims, itemOnWall, roomWalls, wallPoint, type Wall } from "./geometry";
-import { command, getState, newDesign, replaceDesign, setUI, toast, uid, update } from "./store";
-import type { Design, Item, Opening, RoomShape, Vec2 } from "./types";
+import { command, getState, LOCK_KEY, newDesign, replaceDesign, setUI, toast, uid, update } from "./store";
+import type { Design, Item, Lighting, Opening, RoomShape, TopSpec, Vec2 } from "./types";
 
 const lastPlaced = { wall: -1, u: 0 };
 
+/** When the layout is locked, anything that would move, resize, add or remove units is refused. */
+export function blockedByLock() {
+  if (!getState().ui.locked) return false;
+  toast("Layout is locked. Unlock it (padlock, bottom of the screen) to move or change units.");
+  return true;
+}
+
+export function setLocked(locked: boolean) {
+  setUI({ locked, dragging: false });
+  try {
+    localStorage.setItem(LOCK_KEY, locked ? "1" : "0");
+  } catch {
+    /* preference only */
+  }
+  toast(locked ? "Layout locked: drag anywhere to look around; finishes, tops and lights can still change." : "Layout unlocked.");
+}
+
 export function addProduct(productId: string, width?: number) {
   const p = getProduct(productId);
-  if (!p) return;
+  if (!p || blockedByLock()) return;
   const d = getState().design;
   const w = width ?? p.widths[0];
   const after = lastPlaced.wall >= 0 ? { wall: lastPlaced.wall, u: lastPlaced.u } : undefined;
@@ -41,6 +59,7 @@ export function setItem(id: string, patch: Partial<Item>, history = true) {
 
 /** Change a property that alters the footprint; refuse if the result would collide. */
 export function setItemChecked(id: string, patch: Partial<Item>) {
+  if (blockedByLock()) return false;
   const d = getState().design;
   const it = d.items.find((i) => i.id === id);
   if (!it) return;
@@ -68,7 +87,7 @@ export function setItemChecked(id: string, patch: Partial<Item>) {
 
 export function removeSelection() {
   const sel = getState().ui.sel;
-  if (!sel) return;
+  if (!sel || ((sel.type === "item" || sel.type === "opening") && blockedByLock())) return;
   if (sel.type === "item") update((d) => ({ ...d, items: d.items.filter((i) => i.id !== sel.id) }));
   else if (sel.type === "opening") update((d) => ({ ...d, openings: d.openings.filter((o) => o.id !== sel.id) }));
   else return;
@@ -76,6 +95,7 @@ export function removeSelection() {
 }
 
 export function duplicateItem(id: string) {
+  if (blockedByLock()) return;
   const d = getState().design;
   const it = d.items.find((i) => i.id === id);
   const p = it && getProduct(it.product);
@@ -96,7 +116,7 @@ export function duplicateItem(id: string) {
 
 export function rotateItem(id: string, dir: 1 | -1) {
   const it = getItem(id);
-  if (!it) return;
+  if (!it || blockedByLock()) return;
   const step = getProduct(it.product)?.mount === "free" ? Math.PI / 4 : Math.PI / 2;
   setItem(id, { rot: Math.round(((it.rot + dir * step) / (Math.PI / 4))) * (Math.PI / 4) });
 }
@@ -109,6 +129,30 @@ export function replaceProduct(id: string, productId: string) {
   if (setItemChecked(id, { product: productId, width, elev: undefined, depth: undefined, height: undefined, open: false })) toast(`Replaced with ${p.name}.`);
 }
 
+// ---------------------------------------------------------------- worktops & lighting
+
+/** Change the worktop for the whole kitchen, or only for the base units in one section. */
+export function setTops(patch: Partial<TopSpec>, sectionIds?: string[]) {
+  update((d) => {
+    if (sectionIds) return { ...d, items: d.items.map((i) => (sectionIds.includes(i.id) ? { ...i, top: { ...i.top, ...patch } } : i)) };
+    const s = { ...d.style };
+    if (patch.material) s.worktop = patch.material;
+    if (patch.thickness) s.topThickness = patch.thickness;
+    if (patch.edge) s.topEdge = patch.edge;
+    if (patch.splash) s.splash = patch.splash;
+    return { ...d, style: s };
+  });
+}
+
+/** Drop section overrides so those units follow the kitchen worktop again. */
+export function clearTops(sectionIds?: string[]) {
+  update((d) => ({ ...d, items: d.items.map((i) => (i.top && (!sectionIds || sectionIds.includes(i.id)) ? { ...i, top: undefined } : i)) }));
+}
+
+export function setLighting(patch: Partial<Lighting>) {
+  update((d) => ({ ...d, lighting: { ...d.lighting, ...patch, zones: { ...d.lighting.zones, ...patch.zones } } }));
+}
+
 export function toggleOpen(id: string) {
   const it = getItem(id);
   if (it) setItem(id, { open: !it.open }, false);
@@ -117,6 +161,7 @@ export function toggleOpen(id: string) {
 // ---------------------------------------------------------------- openings
 
 export function addOpening(presetId: string) {
+  if (blockedByLock()) return;
   const pr = presetOf(presetId);
   const d = getState().design;
   const walls = roomWalls(d.room.shape);
@@ -141,6 +186,7 @@ export function addOpening(presetId: string) {
 }
 
 export function setOpening(id: string, patch: Partial<Opening>, history = true) {
+  if (history && blockedByLock()) return;
   update((d) => ({ ...d, openings: d.openings.map((o) => (o.id === id ? clampOpening({ ...o, ...patch }, d) : o)) }), history);
 }
 
@@ -170,6 +216,7 @@ function matchWall(walls: Wall[], from: Wall, pt: Vec2) {
 
 /** Resize or reshape the room; openings and wall units follow the wall they're on. */
 export function setRoomShape(shape: RoomShape) {
+  if (blockedByLock()) return;
   update((d) => {
     const oldWalls = roomWalls(d.room.shape);
     const walls = roomWalls(shape);
@@ -200,6 +247,7 @@ export function setRoomShape(shape: RoomShape) {
 }
 
 export function setCeiling(h: number) {
+  if (blockedByLock()) return;
   update((d) => ({ ...d, room: { ...d.room, ceiling: h }, openings: d.openings.map((o) => ({ ...o, height: Math.min(o.height, h - o.sill) })) }));
 }
 
@@ -213,15 +261,16 @@ export function startDesign(shape: RoomShape, template: Template) {
   const n = walls.length;
   // Wall roles for every supported shape: back = 0, then right, front and left going clockwise.
   const role = { back: 0, right: n - 3, front: n - 2, left: n - 1 };
+  const CORNER = 900;
 
   const place = (wall: number, u0: number, pid: string, width: number, rot?: number) => {
     const w = walls[wall];
     const p = getProduct(pid)!;
     const probe: Item = { id: uid(), product: pid, width, x: 0, z: 0, rot: w.rot };
     const dm = itemDims(probe, p, d.room);
-    if (u0 < 0 || u0 + width > w.len) return null;
+    if (u0 < -0.5 || u0 + width > w.len + 0.5) return null;
     const pos = wallPoint(w, u0 + width / 2, dm.d / 2 + 0.5);
-    const it = { ...probe, x: pos.x, z: pos.z, rot: rot ?? w.rot };
+    const it: Item = { ...probe, x: pos.x, z: pos.z, rot: rot ?? w.rot, ...(p.model === "cornerL" ? { mirror: u0 + width / 2 > w.len / 2 } : {}) };
     if (findCollision(d, it, walls)) return null;
     d.items.push(it);
     return it;
@@ -234,18 +283,25 @@ export function startDesign(shape: RoomShape, template: Template) {
     for (const [pid, w] of list) if (place(wall, u - w, pid, w)) u -= w;
     return u;
   };
-  /** Wall cabinets above every base unit (skipped where a window is), a hood above each hob. */
+  /** Close a gap with the largest standard door units that fit (anything under 200 mm is a filler). */
+  const fillGap = (wall: number, u0: number, u1: number, pid = "base-door") => {
+    for (const w of [800, 600, 400, 200]) while (u1 - u0 >= w && place(wall, u0, pid, w)) u0 += w;
+  };
+  const corner = (wall: number, at: "start" | "end") => place(wall, at === "start" ? 0 : walls[wall].len - CORNER, "base-corner-l", CORNER);
+  /** Wall cabinets above every base unit (skipped where a window is), a hood above each hob, a corner unit above each corner. */
   const topUp = () => {
-    const hobFirst = [...d.items].sort((a, b) => Number(getProduct(b.product)!.model.startsWith("hob")) - Number(getProduct(a.product)!.model.startsWith("hob")));
-    for (const it of hobFirst) {
+    // Corners first (they fix where both walls start), then hoods over the hobs, then everything else.
+    const rank = (it: Item) => ({ cornerL: 0, hob: 1, hobOven: 1 } as Record<string, number>)[getProduct(it.product)!.model] ?? 2;
+    for (const it of [...d.items].sort((a, b) => rank(a) - rank(b))) {
       const p = getProduct(it.product)!;
       if (p.layer !== "base") continue;
       const on = itemOnWall(it, p.depth, walls);
       if (!on) continue;
       if (p.model === "hob" || p.model === "hobOven") {
-        const hw = it.width >= 800 ? 900 : 600;
+        const hw = it.width >= 900 ? 900 : 600;
         place(on.wall, on.u0 + (it.width - hw) / 2, "hood-chimney", hw);
-      } else if (getProduct("wall-door")!.widths.includes(it.width)) place(on.wall, on.u0, "wall-door", it.width);
+      } else if (p.model === "cornerL") place(on.wall, on.u0, "wall-corner-l", CORNER);
+      else if (getProduct("wall-door")!.widths.includes(it.width)) place(on.wall, on.u0, "wall-door", it.width);
     }
   };
 
@@ -253,21 +309,29 @@ export function startDesign(shape: RoomShape, template: Template) {
     const win = d.openings.find((o) => o.type === "window" && o.wall === role.back);
     const back = walls[role.back];
     const sinkU = Math.round((win ? win.offset : back.len / 2) - 400);
-    fillBack(role.back, sinkU, [["base-dishwasher", 600], ["base-drawers-3", 600], ["base-door", 400]]);
-    const end = fill(role.back, sinkU, template === "straight" || template === "galley"
+    const corners = template === "l" || template === "island" ? ["end"] : template === "u" ? ["start", "end"] : [];
+    for (const c of corners) corner(role.back, c as "start" | "end");
+    const startU = corners.includes("start") ? CORNER : 0;
+    const endU = corners.includes("end") ? back.len - CORNER : back.len;
+
+    const left = fillBack(role.back, sinkU, [["base-dishwasher", 600], ["base-drawers-3", 600], ["base-door", 400]]);
+    fillGap(role.back, startU, left);
+    const right = fill(role.back, sinkU, template === "straight" || template === "galley"
       ? [["base-sink", 800], ["base-drawers-2", 600], ["base-hob", 800]]
-      : [["base-sink", 800], ["base-drawers-2", 600], ["base-door", 600]]);
-    if (template === "straight") fill(role.back, end, [["tall-fridge", 600]]);
+      : [["base-sink", 800], ["base-drawers-2", 600]]);
+    if (template === "straight" && endU - right >= 600) fillBack(role.back, endU, [["tall-fridge", 600]]);
+    fillGap(role.back, right, endU);
 
     if (template === "l" || template === "u" || template === "island") {
       const r = walls[role.right];
-      const u = fill(role.right, 600, [["base-drawers-3", 600], ["base-hob", 800], ["base-drawers-2", 600]]);
-      const room = r.len - u;
-      fillBack(role.right, r.len, (room >= 1200 ? [["tall-fridge", 600], ["tall-oven", 600]] : room >= 600 ? [["tall-fridge", 600]] : []) as [string, number][]);
+      const u = fill(role.right, CORNER, [["base-hob", 800], ["base-drawers-3", 600]]);
+      const fridge = r.len - u >= 600 ? fillBack(role.right, r.len, [["tall-fridge", 600]]) : r.len;
+      fillGap(role.right, u, fridge);
     }
     if (template === "u") {
       const l = walls[role.left];
-      fillBack(role.left, l.len - 600, [["base-drawers-2", 800], ["base-door", 600], ["tall-pullout", 600]]);
+      const u = fillBack(role.left, l.len - CORNER, [["base-drawers-2", 800], ["base-door", 600]]);
+      fillGap(role.left, Math.max(0, u - 1200), u);
     }
     if (template === "galley") {
       const f = walls[role.front];
@@ -276,12 +340,12 @@ export function startDesign(shape: RoomShape, template: Template) {
     if (template === "island") {
       const b = walls[role.back];
       const cx = b.a.x + b.len / 2;
-      const z = 600 + 1100 + 300;
+      const z = BASE_D + 1100 + BASE_D / 2;
       [["base-drawers-3", 600], ["base-door", 600], ["base-drawers-3", 600]].forEach(([pid, w], k) => {
         const it: Item = { id: uid(), product: pid as string, width: w as number, x: cx - 600 + k * 600, z, rot: Math.PI };
         if (!findCollision(d, it, walls)) d.items.push(it);
       });
-      for (let k = 0; k < 3; k++) d.items.push({ id: uid(), product: "stool", width: 400, x: cx - 600 + k * 600, z: z + 300 + 320, rot: Math.PI });
+      for (let k = 0; k < 3; k++) d.items.push({ id: uid(), product: "stool", width: 400, x: cx - 600 + k * 600, z: z + BASE_D / 2 + 320, rot: Math.PI });
     }
     topUp();
   }

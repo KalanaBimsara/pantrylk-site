@@ -3,6 +3,7 @@ import { cache } from "react";
 import { getPublicSupabase, mediaUrl } from "@/lib/supabase/public";
 import type { Category, Img, MaterialRow, Product, Project, SiteSettings, Testimonial, Finish, PriceMode } from "@/lib/types";
 import { seedCategories, seedProducts, seedProjects, seedSettings } from "@/content/seed";
+import { withUnitDetails } from "@/lib/planner/unit-products";
 
 /**
  * Content source rules
@@ -172,7 +173,8 @@ export const getProducts = cache(async (): Promise<Product[]> => {
         seoDescription: str(r.seo_description),
       };
     })
-    .filter((p): p is Product => !!p);
+    .filter((p): p is Product => !!p)
+    .map(withUnitDetails);
 });
 
 export async function getProduct(slug: string): Promise<Product | null> {

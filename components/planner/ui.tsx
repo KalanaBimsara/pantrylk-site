@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import type { Front } from "@/lib/planner/finishes";
+import type { Front, Worktop } from "@/lib/planner/finishes";
 
 const paths: Record<string, ReactNode> = {
   room: <path d="M4 4h16v16H4zM4 12h7v8" />,
@@ -47,6 +47,12 @@ const paths: Record<string, ReactNode> = {
   back: <path d="M15 6l-6 6 6 6" />,
   folder: <path d="M3 6h7l2 2h9v11H3z" />,
   file: <path d="M6 3h8l5 5v13H6zM14 3v5h5" />,
+  top: <path d="M2 8h20v4H2zM4 12v8M20 12v8M7 12v4h10v-4" />,
+  bulb: <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.7.5 1.1 1.3 1.1 2.1V16h4.8v-.1c0-.8.4-1.6 1.1-2.1A6 6 0 0 0 12 3z" />,
+  sun: <path d="M12 12m-4 0a4 4 0 1 0 8 0a4 4 0 1 0-8 0M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />,
+  moon: <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />,
+  lock: <path d="M6 11h12v10H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3M12 15v2" />,
+  unlock: <path d="M6 11h12v10H6zM8.5 11V8a3.5 3.5 0 0 1 6.8-1.2M12 15v2" />,
 };
 
 export function Icon({ name, size = 20, className = "" }: { name: keyof typeof paths | string; size?: number; className?: string }) {
@@ -90,6 +96,15 @@ export function NumberField({ label, value, onChange, min, max, step = 10, suffi
       </span>
     </label>
   );
+}
+
+export function topSwatchStyle(w: Worktop): React.CSSProperties {
+  if (w.metal) return { background: `repeating-linear-gradient(90deg, #ffffff22 0 1px, transparent 1px 3px), linear-gradient(135deg, #e6e8ea, ${w.color} 50%, #9fa3a6)` };
+  if (w.surface === "wood") return { background: `repeating-linear-gradient(90deg, ${w.color} 0 6px, ${w.vein} 6px 7px)` };
+  if (w.surface === "marble") return { background: `linear-gradient(120deg, transparent 40%, ${w.vein} 41%, transparent 43%), linear-gradient(40deg, transparent 60%, ${w.vein}88 61%, transparent 62%), ${w.color}` };
+  if (w.surface === "fine") return { background: `radial-gradient(${w.vein} 0.6px, transparent 0.9px) 0 0/3px 3px, ${w.color}` };
+  if (w.surface === "speckle") return { background: `radial-gradient(${w.vein} 1px, transparent 1.5px) 0 0/5px 5px, radial-gradient(#ffffff55 0.8px, transparent 1.2px) 2px 3px/7px 7px, ${w.color}` };
+  return { background: w.color };
 }
 
 export function frontSwatchStyle(f: Front): React.CSSProperties {

@@ -43,6 +43,6 @@ export function measure(s: State): Measure {
       seg(on.u1, w.len, "gr");
     }
   }
-  if (!ui.dragging) out.tools = { p: [it.x, dm.y0 + dm.h + 60, it.z], id: it.id };
+  if (!ui.dragging && !ui.locked) out.tools = { p: [it.x, dm.y0 + dm.h + 60, it.z], id: it.id };
   return out;
 }

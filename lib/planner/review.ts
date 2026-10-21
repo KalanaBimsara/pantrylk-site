@@ -1,7 +1,11 @@
 import { getProduct, itemCode } from "./catalog";
-import { byId, FRONTS, HANDLES, WORKTOPS } from "./finishes";
-import { findCollision, footprint, itemDims, itemOnWall, polysOverlap, roomArea, roomWalls, wallPoint } from "./geometry";
-import type { Design, Item } from "./types";
+import { byId, FRONTS, HANDLES, LED_PRICE_PER_M, LIGHT_COLORS, LIGHT_ZONES, SPLASHES, TOP_EDGES, WORKTOPS } from "./finishes";
+import {
+  cutLength, findCollision, footprint, isCabinetModel, itemDims, itemOnWall, polysOverlap, roomArea, roomWalls, splashPieces, wallPoint, worktopRuns,
+} from "./geometry";
+import { stripTotals } from "./lighting";
+import { cabinetArea, cabinetPrice, formatLKR, isPricedCabinet, slabPrice } from "./pricing";
+import type { Design, Item, TopSpec } from "./types";
 
 export type Finding = { level: "error" | "warning" | "tip"; text: string; itemId?: string };
 
@@ -69,6 +73,8 @@ export function reviewDesign(d: Design): Finding[] {
     if (!has(["hob", "hobOven", "range"])) out.push({ level: "tip", text: "No cooktop yet — add one from Base cabinets › For cooktop." });
     if (!has(["fridge", "fridgeDouble", "tallFridge"])) out.push({ level: "tip", text: "No fridge yet — add one from Appliances or High cabinets." });
   } else out.push({ level: "tip", text: "Your room is ready — add cabinets in “Make it yours”." });
+  if (!d.lighting.zones.under && d.items.some((it) => getProduct(it.product)?.layer === "wall" && isCabinetModel(getProduct(it.product)!)))
+    out.push({ level: "tip", text: "Under-cabinet LED strips make the worktop much easier to work on — switch them on in Lights." });
   return out;
 }
 
@@ -81,33 +87,75 @@ export function partsList(d: Design): Line[] {
     if (!p) continue;
     const dm = itemDims(it, p, d.room);
     const finish = p.group === "cabinets" && p.model !== "hood" ? `${byId(FRONTS, it.front ?? d.style.front).name}, ${byId(HANDLES, it.handle ?? d.style.handle).name.toLowerCase()}` : "";
-    const size = p.resizable ? `${dm.w}×${dm.d}×${dm.h} mm` : `${dm.w / 10} cm`;
+    const size = p.resizable || p.model === "cornerL" ? `${dm.w}×${dm.d}×${dm.h - p.plinth} mm` : isPricedCabinet(p) ? `${dm.w}×${dm.h - p.plinth}×${dm.d} mm` : `${dm.w / 10} cm`;
     const key = `${p.id}|${size}|${finish}`;
-    const unit = p.price != null ? Math.round((p.price * it.width) / p.widths[0]) : null;
+    const unit = cabinetPrice(p, dm.w, dm.h, dm.d) ?? (p.price != null ? Math.round((p.price * it.width) / p.widths[0]) : null);
+    const area = isPricedCabinet(p) ? `${cabinetArea(p, dm.w, dm.h, dm.d).toFixed(2)} sq ft` : "";
     const line = map.get(key);
     if (line) {
       line.qty++;
-    } else map.set(key, { key, productId: p.id, name: p.name, code: itemCode(p, dm.w), detail: [size, finish].filter(Boolean).join(" · "), qty: 1, price: unit });
+    } else map.set(key, { key, productId: p.id, name: p.name, code: itemCode(p, dm.w), detail: [size, area, finish].filter(Boolean).join(" · "), qty: 1, price: unit });
   }
-  return [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
+  const lines = [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
+
+  // Worktops: one line per distinct top. Every slab piece (each section and splashback piece) is
+  // measured in whole feet, rounded up, the way stone is cut and sold.
+  const tops = new Map<string, { spec: TopSpec; len: number; sqft: number; splashSqft: number; price: number | null }>();
+  const runs = worktopRuns(d);
+  for (const r of runs) {
+    const k = `${r.spec.material}|${r.spec.thickness}|${r.spec.edge}|${r.spec.splash}`;
+    const t = tops.get(k) ?? { spec: r.spec, len: 0, sqft: 0, splashSqft: 0, price: 0 };
+    const slab = slabPrice(r.spec.material, cutLength(r, runs), r.depth);
+    const splash = splashPieces(d, r).map((s) => slabPrice(r.spec.material, s.b - s.a, s.h));
+    t.len += r.len;
+    t.sqft += slab.sqft;
+    t.splashSqft += splash.reduce((s, x) => s + x.sqft, 0);
+    t.price = slab.price == null || t.price == null ? null : t.price + slab.price + splash.reduce((s, x) => s + (x.price ?? 0), 0);
+    tops.set(k, t);
+  }
+  for (const [k, t] of tops) {
+    const w = byId(WORKTOPS, t.spec.material);
+    const splash = t.splashSqft > 0 ? ` + ${SPLASHES.find((s) => s.id === t.spec.splash)!.name.toLowerCase()} ${t.splashSqft} sq ft` : "";
+    lines.push({
+      key: `top|${k}`, productId: "", name: `Pantry top, ${w.name}`, code: "TOP", qty: 1,
+      detail: `${t.spec.thickness} mm, ${TOP_EDGES.find((e) => e.id === t.spec.edge)!.name.toLowerCase()} edge · ${(t.len / 1000).toFixed(2)} m run, ${t.sqft} sq ft${splash}`,
+      price: t.price,
+    });
+  }
+
+  // Built-in LED strips by zone (stand-alone LED strip items are already listed above).
+  const color = byId(LIGHT_COLORS, d.lighting.color);
+  for (const t of stripTotals(d).filter((x) => x.zone !== "custom"))
+    lines.push({
+      key: `led|${t.zone}`, productId: "", name: t.name.replace(/^LED strip, /, "LED strip — "), code: "LED", qty: 1,
+      detail: `${t.metres} m · ${color.name}${color.sub === "RGB" ? " (RGB)" : ` ${color.sub}`}`,
+      price: LED_PRICE_PER_M != null ? Math.round(LED_PRICE_PER_M * t.metres) : null,
+    });
+  return lines;
 }
 
-export function estimate(lines: Line[]): number | null {
-  if (!lines.length || lines.some((l) => l.price == null)) return null;
-  return lines.reduce((s, l) => s + (l.price ?? 0) * l.qty, 0);
+/** Total of everything with a price; `unpriced` counts lines quoted separately (appliances, other tops, lights…). */
+export function estimate(lines: Line[]): { total: number; unpriced: number } | null {
+  const priced = lines.filter((l) => l.price != null);
+  if (!priced.length) return null;
+  return { total: priced.reduce((s, l) => s + (l.price ?? 0) * l.qty, 0), unpriced: lines.length - priced.length };
 }
 
 export function designSummary(d: Design, link?: string) {
   const s = d.room.shape;
   const lines = partsList(d);
-  const worktop = d.items.some((i) => getProduct(i.product)?.worktop) ? byId(WORKTOPS, d.style.worktop).name : null;
+  const zones = LIGHT_ZONES.filter((z) => d.lighting.zones[z.id]).map((z) => z.name.toLowerCase());
+  const est = estimate(lines);
+  const color = byId(LIGHT_COLORS, d.lighting.color);
   return [
     `Hi Pantry LK, I've designed my kitchen in your Kitchen Planner: "${d.name}".`,
     ``,
     `Room: ${s.width / 1000} m × ${s.depth / 1000} m (${roomArea(s).toFixed(1)} m²), ceiling ${d.room.ceiling / 1000} m`,
-    `Fronts: ${byId(FRONTS, d.style.front).name} · Handles: ${byId(HANDLES, d.style.handle).name}${worktop ? ` · Worktop: ${worktop}` : ""}`,
+    `Fronts: ${byId(FRONTS, d.style.front).name} · Handles: ${byId(HANDLES, d.style.handle).name}`,
+    `Lighting: ${zones.length ? `${color.name} LED strips — ${zones.join(", ")}` : "no LED strips"}`,
     ``,
-    ...lines.map((l) => `• ${l.qty} × ${l.name} (${l.detail})`),
+    ...lines.map((l) => `• ${l.qty} × ${l.name} (${l.detail})${l.price != null ? ` — ${formatLKR(l.price * l.qty)}` : ""}`),
+    ...(est ? [``, `Estimated total: ${formatLKR(est.total)}${est.unpriced ? ` (+ ${est.unpriced} item${est.unpriced === 1 ? "" : "s"} to be quoted)` : ""}`] : []),
     ...(d.notes.trim() ? [``, `Notes: ${d.notes.trim()}`] : []),
     ...(link ? [``, `Open my design: ${link}`] : []),
   ].join("\n");

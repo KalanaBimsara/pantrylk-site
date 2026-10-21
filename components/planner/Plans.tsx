@@ -1,9 +1,10 @@
 "use client";
 
 import { getProduct, itemCode } from "@/lib/planner/catalog";
-import { byId, FRONTS, TOP_T, TOP_Y, WALL_T } from "@/lib/planner/finishes";
+import { byId, FRONTS, plinthFor, TOP_Y, WALL_T, WORKTOPS } from "@/lib/planner/finishes";
 import {
-  axes, bounds, footprint, frontLayout, isCabinetModel, itemDims, itemOnWall, outerCorners, roomPolygon, roomWalls, wallPoint, worktopRuns, type FrontPanel,
+  axes, bounds, footprint, frontLayout, isCabinetModel, itemDims, itemOnWall, outerCorners, roomPolygon, roomWalls, itemBoxes, itemOutline, splashPieces, topThicknessByItem, wallPoint, worktopRuns,
+  type FrontPanel,
 } from "@/lib/planner/geometry";
 import type { Design, Product } from "@/lib/planner/types";
 
@@ -30,11 +31,11 @@ function FrontLines({ f, x, y, h, sw, fill = "#fff" }: { f: FrontPanel; x: numbe
 }
 
 /** Front elevation of one product, used as catalog thumbnails and in wall elevations. */
-export function ProductFront({ p, w, x, y, h, sw, frontColor }: { p: Product; w: number; x: number; y: number; h: number; sw: number; frontColor?: string }) {
+export function ProductFront({ p, w, x, y, h, sw, frontColor, mirror = false }: { p: Product; w: number; x: number; y: number; h: number; sw: number; frontColor?: string; mirror?: boolean }) {
   const bodyH = h - p.plinth;
   const fill = frontColor ?? "#fff";
   const body = y - p.plinth;
-  const fronts = frontLayout(p, w, p.model === "range" ? h - 10 : bodyH);
+  const fronts = frontLayout(p, w, p.model === "range" ? h - 10 : bodyH, mirror);
   const els: React.ReactNode[] = [];
   if (p.plinth > 0) els.push(<rect key="pl" x={x + 30} y={y - p.plinth} width={w - 60} height={p.plinth} fill="#c9c4bb" stroke={INK} strokeWidth={sw * 0.6} />);
   if (p.model !== "hood") els.push(<rect key="b" x={x} y={body - bodyH} width={w} height={bodyH} fill={isCabinetModel(p) ? fill : "#e3e6e8"} stroke={INK} strokeWidth={sw} />);
@@ -139,7 +140,7 @@ export function FloorPlan({ d, className = "" }: { d: Design; className?: string
         const p = getProduct(it.product);
         if (!p) return null;
         const dm = itemDims(it, p, d.room);
-        const fp = footprint(it, it.rot, dm.w, dm.d);
+        const fp = itemOutline(it, p, dm);
         const wall = p.layer === "wall";
         const label = itemCode(p, dm.w);
         const { az } = axes(it.rot);
@@ -189,16 +190,20 @@ export function Elevation({ d, wall, className = "" }: { d: Design; wall: number
   const sw = Math.max(w.len, H) / 900;
   const Y = (y: number) => H - y;
   const on = d.items
-    .map((it) => {
+    .flatMap((it) => {
       const p = getProduct(it.product);
-      if (!p) return null;
+      if (!p) return [];
       const dm = itemDims(it, p, d.room);
-      const o = itemOnWall(it, dm.d, [w]);
-      return o ? { it, p, dm, ...o } : null;
+      // Corner units appear on both walls: the back arm, and the side arm with its blind end in the corner.
+      return itemBoxes(it, p, dm).flatMap((b, k) => {
+        const o = itemOnWall({ ...it, x: b.x, z: b.z, rot: b.rot, width: b.w }, b.d, [w]);
+        return o ? [{ it, p, dm: { ...dm, w: b.w }, key: `${it.id}${k}`, mirror: k === 0 ? !!it.mirror : !it.mirror, ...o }] : [];
+      });
     })
-    .filter((x) => x !== null)
     .sort((a, b) => (a.p.layer === "fixture" ? 1 : 0) - (b.p.layer === "fixture" ? 1 : 0));
-  const runs = worktopRuns(d).filter((r) => {
+  const allRuns = worktopRuns(d);
+  const tops = topThicknessByItem(allRuns);
+  const runs = allRuns.filter((r) => {
     if (Math.abs(Math.atan2(Math.sin(r.rot - w.rot), Math.cos(r.rot - w.rot))) > 0.01) return false;
     const back = (r.x - w.a.x) * w.n.x + (r.z - w.a.z) * w.n.z - r.depth / 2;
     return Math.abs(back) < 30;
@@ -228,15 +233,23 @@ export function Elevation({ d, wall, className = "" }: { d: Design; wall: number
       ))}
       {runs.map((r, k) => {
         const u = (r.x - w.a.x) * w.dir.x + (r.z - w.a.z) * w.dir.z;
-        return <rect key={k} x={u - r.len / 2} y={Y(TOP_Y)} width={r.len} height={TOP_T} fill="#d9d3c8" stroke={INK} strokeWidth={sw} />;
+        const fill = byId(WORKTOPS, r.spec.material).color;
+        return (
+          <g key={k}>
+            {splashPieces(d, r).map((s, j) => (
+              <rect key={j} x={u - r.len / 2 + s.a} y={Y(TOP_Y + s.h)} width={s.b - s.a} height={s.h} fill={fill} fillOpacity={0.35} stroke={INK} strokeWidth={sw * 0.6} />
+            ))}
+            <rect x={u - r.len / 2} y={Y(TOP_Y)} width={r.len} height={r.spec.thickness} fill={fill} stroke={INK} strokeWidth={sw} />
+          </g>
+        );
       })}
-      {on.map(({ it, p, dm, u0 }) => {
+      {on.map(({ it, p, dm, u0, key, mirror }) => {
         const front = isCabinetModel(p) ? byId(FRONTS, it.front ?? d.style.front).color : undefined;
         const light = front ? parseInt(front.slice(1, 3), 16) > 120 : true;
         return (
-          <g key={it.id} transform={`translate(${u0} 0)`}>
+          <g key={key} transform={`translate(${u0} 0)`}>
             {isCabinetModel(p) || ["fridge", "fridgeDouble", "range", "washer", "hood"].includes(p.model) ? (
-              <ProductFront p={p} w={dm.w} x={0} y={Y(dm.y0)} h={dm.h} sw={sw} frontColor={light ? "#fff" : "#e8e4dc"} />
+              <ProductFront p={tops.has(it.id) ? { ...p, plinth: plinthFor(tops.get(it.id)!) } : p} w={dm.w} x={0} y={Y(dm.y0)} h={tops.has(it.id) ? TOP_Y - tops.get(it.id)! : dm.h} sw={sw} frontColor={light ? "#fff" : "#e8e4dc"} mirror={mirror} />
             ) : (
               <g transform={`translate(0 ${Y(dm.y0)})`}>
                 <Glyph p={p} w={dm.w} h={dm.h} sw={sw} />

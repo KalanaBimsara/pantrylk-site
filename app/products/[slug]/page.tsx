@@ -5,6 +5,7 @@ import ProductCard from "@/components/ProductCard";
 import ProductShowcase from "@/components/ProductShowcase";
 import { getProduct, getProducts, getSettings } from "@/lib/content";
 import { plannerLink, quotationLink } from "@/lib/links";
+import { siteUnit, unitSizes } from "@/lib/planner/site-products";
 import { SITE_URL } from "@/lib/site-url";
 
 export const revalidate = 300;
@@ -31,6 +32,8 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const { slug } = await params;
   const [product, all, s] = await Promise.all([getProduct(slug), getProducts(), getSettings()]);
   if (!product) notFound();
+  const u = siteUnit(product.slug);
+  const unit = u ? { plannerId: u.plannerId, showWidth: u.showWidth, sizes: unitSizes(u).map(({ width, label, dims, price }) => ({ width, label, dims, price })) } : undefined;
   const related = all.filter((p) => p.slug !== product.slug).sort((a, b) => Number(b.categorySlug === product.categorySlug) - Number(a.categorySlug === product.categorySlug)).slice(0, 4);
 
   const productLd = {
@@ -53,7 +56,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
         <span aria-current="page">{product.name}</span>
       </nav>
 
-      <ProductShowcase product={product} whatsappNumber={s.whatsappNumber} planner={plannerLink(s)} quote={quotationLink(s)} newTab={s.openAppsInNewTab} />
+      <ProductShowcase product={product} whatsappNumber={s.whatsappNumber} planner={plannerLink(s)} quote={quotationLink(s)} newTab={s.openAppsInNewTab} unit={unit} />
 
       {product.specs.length > 0 && (
         <section className="wrap pb-24">

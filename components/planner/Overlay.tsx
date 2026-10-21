@@ -18,25 +18,27 @@ export default function Overlay() {
   useEffect(() => {
     const v = new THREE.Vector3();
     const anchors = [...m.labels.map((l) => [l.key, l.p] as const), ...(m.tools ? [["tools", m.tools.p] as const] : [])];
-    let raf = 0;
-    const loop = () => {
+    // Runs on the frames the 3D view renders, so labels cost nothing while the scene is still.
+    const place = () => {
       const cam = sceneApi.camera;
       const el = box.current;
-      if (cam && el) {
-        const W = el.clientWidth, H = el.clientHeight;
-        for (const [key, p] of anchors) {
-          const n = nodes.current.get(key);
-          if (!n) continue;
-          v.set(p[0] / 1000, p[1] / 1000, p[2] / 1000).project(cam);
-          const on = v.z > -1 && v.z < 1;
-          n.style.visibility = on ? "visible" : "hidden";
-          n.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -50%)`;
-        }
+      if (!cam || !el) return;
+      const W = el.clientWidth, H = el.clientHeight;
+      for (const [key, p] of anchors) {
+        const n = nodes.current.get(key);
+        if (!n) continue;
+        v.set(p[0] / 1000, p[1] / 1000, p[2] / 1000).project(cam);
+        const on = v.z > -1 && v.z < 1;
+        n.style.visibility = on ? "visible" : "hidden";
+        n.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -50%)`;
       }
-      raf = requestAnimationFrame(loop);
     };
-    loop();
-    return () => cancelAnimationFrame(raf);
+    sceneApi.frameListeners.add(place);
+    place();
+    sceneApi.invalidate?.();
+    return () => {
+      sceneApi.frameListeners.delete(place);
+    };
   }, [m]);
 
   const bind = (key: string) => (n: HTMLElement | null) => {

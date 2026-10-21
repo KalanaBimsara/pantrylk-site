@@ -7,16 +7,18 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { setItem, setOpening } from "@/lib/planner/actions";
 import { getProduct } from "@/lib/planner/catalog";
-import { TOP_T, TOP_Y, WALL_T } from "@/lib/planner/finishes";
+import { BASE_BODY, plinthFor, SPLASH_T, TOP_Y, WALL_T } from "@/lib/planner/finishes";
 import {
-  bounds, findCollision, isCabinetModel, itemDims, itemOnWall, outerCorners, roomPolygon, roomWalls, snapItem, wallPieces, wallPoint, worktopRuns,
-  type Wall, type WallPiece,
+  bounds, findCollision, isCabinetModel, itemDims, itemOnWall, outerCorners, roomPolygon, roomWalls, findRun, snapItem, splashPieces, topThicknessByItem, wallPieces, wallPoint, worktopRuns,
+  type Run, type Wall, type WallPiece,
 } from "@/lib/planner/geometry";
 import { commitFrom, getState, setUI, toast, update, usePlanner } from "@/lib/planner/store";
 import type { Item, KitchenStyle, Opening, Room, Vec2 } from "@/lib/planner/types";
 import { floorMaterial, M, wallMaterial, worktopMaterial } from "./materials";
+import KitchenLights from "./Lighting";
 import { measure } from "./measure";
 import { Appliance, B, Cabinet, Furniture } from "./models";
+import { boxProfile, slab, topProfile } from "./worktop";
 
 const APPLIANCE_MODELS = new Set(["hood", "fridge", "fridgeDouble", "range", "washer", "microwave"]);
 const EDGES = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
@@ -28,6 +30,10 @@ const STUB = 140;
 export const sceneApi = {
   capture: null as null | (() => string),
   camera: null as THREE.Camera | null,
+  invalidate: null as null | (() => void),
+  frameListeners: new Set<() => void>(),
+  /** Frames rendered so far (handy for checking that an idle scene renders nothing). */
+  frames: 0,
   walkKeys: new Set<string>(),
 };
 
@@ -82,11 +88,13 @@ const WallMesh = memo(function WallMesh({ w, outer, count, openings, room, selec
   useEffect(() => () => Object.values(geos).flat().forEach((g) => g.dispose()), [geos]);
 
   const mid = { x: (w.a.x + w.b.x) / 2 / 1000, z: (w.a.z + w.b.z) / 2 / 1000 };
-  useFrame(({ camera }) => {
+  useFrame(({ camera, gl }) => {
     if (!full.current || !stub.current) return;
     const cut = autoHide && (camera.position.x - mid.x) * w.n.x + (camera.position.z - mid.z) * w.n.z < -0.05;
+    if (full.current.visible === !cut) return;
     full.current.visible = !cut;
     stub.current.visible = cut;
+    gl.shadowMap.needsUpdate = true;
   });
   const mat = selected ? M.selected : wallMaterial(room.wallColor);
   const onClick = (e: ThreeEvent<MouseEvent>) => {
@@ -114,7 +122,7 @@ function OpeningMesh({ o, w, editable, selected }: { o: Opening; w: Wall; editab
   const T = WALL_T;
   const fw = 50;
   const onDown = (e: ThreeEvent<PointerEvent>) => {
-    if (!editable || e.button !== 0 || getState().ui.view === "walk") return;
+    if (!editable || e.button !== 0 || getState().ui.view === "walk" || getState().ui.locked) return;
     e.stopPropagation();
     setUI({ sel: { type: "opening", id: o.id }, panel: { kind: "openings", type: o.type } });
     dragApi.start?.({ kind: "opening", id: o.id, point: e.point, x: e.clientX, y: e.clientY });
@@ -254,10 +262,12 @@ function RoomMesh() {
 
 // ---------------------------------------------------------------- items
 
-const ItemNode = memo(function ItemNode({ item, room, style, selected, hidden, invalid }: { item: Item; room: Room; style: KitchenStyle; selected: boolean; hidden: boolean; invalid: boolean }) {
-  const p = getProduct(item.product);
-  if (!p) return null;
-  const dm = itemDims(item, p, room);
+const ItemNode = memo(function ItemNode({ item, room, style, selected, hidden, invalid, topT }: { item: Item; room: Room; style: KitchenStyle; selected: boolean; hidden: boolean; invalid: boolean; topT?: number }) {
+  const base = getProduct(item.product);
+  if (!base) return null;
+  // Base units stand on adjustable legs: a thinner or thicker top changes the plinth, not the worktop height.
+  const p = topT != null && isCabinetModel(base) ? { ...base, plinth: plinthFor(topT), height: plinthFor(topT) + BASE_BODY } : base;
+  const dm = { ...itemDims(item, base, room), ...(p !== base ? { h: p.height } : {}) };
   const look = { front: item.front ?? style.front, handle: item.handle ?? style.handle, carcass: style.carcass };
   const open = !!item.open;
   const body = isCabinetModel(p) ? (
@@ -268,7 +278,7 @@ const ItemNode = memo(function ItemNode({ item, room, style, selected, hidden, i
     <Furniture p={p} w={dm.w} d={dm.d} h={dm.h} color={item.color} ceiling={room.ceiling} y0={dm.y0} />
   );
   const onDown = (e: ThreeEvent<PointerEvent>) => {
-    if (e.button !== 0 || getState().ui.view === "walk") return;
+    if (e.button !== 0 || getState().ui.view === "walk" || getState().ui.locked) return;
     e.stopPropagation();
     const ui = getState().ui;
     setUI({ sel: { type: "item", id: item.id }, panel: ui.panel?.kind === "selected" ? ui.panel : ui.panel?.kind === "catalog" || ui.panel?.kind === "search" ? ui.panel : null });
@@ -280,11 +290,17 @@ const ItemNode = memo(function ItemNode({ item, room, style, selected, hidden, i
       rotation-y={item.rot}
       visible={!hidden}
       onPointerDown={onDown}
+      onClick={(e) => {
+        // Locked layout: a click (not a drag) still selects, so finishes and doors can be changed.
+        if (!getState().ui.locked || e.delta > 4) return;
+        e.stopPropagation();
+        setUI({ sel: { type: "item", id: item.id } });
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation();
         setUI({ sel: { type: "item", id: item.id }, panel: { kind: "selected", tab: "modify" } });
       }}
-      onPointerOver={() => setCursor("grab")}
+      onPointerOver={() => setCursor(getState().ui.locked ? "pointer" : "grab")}
       onPointerOut={() => setCursor("auto")}
     >
       {body}
@@ -302,6 +318,7 @@ function Items() {
   const sel = usePlanner((s) => s.ui.sel);
   const showWall = usePlanner((s) => s.ui.showWallUnits);
   const invalid = usePlanner((s) => s.ui.dragInvalid);
+  const tops = useMemo(() => topThicknessByItem(worktopRuns({ items, room, style })), [items, room, style]);
   return (
     <>
       {items.map((it) => {
@@ -315,6 +332,7 @@ function Items() {
             selected={isSel}
             invalid={isSel && invalid}
             hidden={!showWall && getProduct(it.product)?.layer === "wall"}
+            topT={tops.get(it.id)}
           />
         );
       })}
@@ -322,18 +340,51 @@ function Items() {
   );
 }
 
+const WorktopRun = memo(function WorktopRun({ run, order, openings, room, selected, editable }: { run: Run; order: number; openings: Opening[]; room: Room; selected: boolean; editable: boolean }) {
+  const { len, depth } = run;
+  const { thickness: t, edge, material } = run.spec;
+  const geo = useMemo(() => slab(len, topProfile(depth, t, edge)), [len, depth, t, edge]);
+  const pieces = useMemo(() => splashPieces({ openings, room }, run), [openings, room, run]);
+  const splashGeos = useMemo(() => pieces.map((s) => slab(s.b - s.a, boxProfile(SPLASH_T, s.h))), [pieces]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  useEffect(() => () => splashGeos.forEach((g) => g.dispose()), [splashGeos]);
+  const m = worktopMaterial(material);
+  const handlers = editable
+    ? {
+        onPointerDown: (e: ThreeEvent<PointerEvent>) => e.stopPropagation(),
+        onClick: (e: ThreeEvent<MouseEvent>) => {
+          if (e.delta > 4 || getState().ui.view === "walk") return;
+          e.stopPropagation();
+          setUI({ sel: { type: "top", id: run.ref }, panel: { kind: "tops" } });
+        },
+        onPointerOver: () => setCursor("pointer"),
+        onPointerOut: () => setCursor("auto"),
+      }
+    : {};
+  return (
+    <group position={[run.x, TOP_Y - t + order * 0.2, run.z]} rotation-y={run.rot} {...handlers}>
+      <mesh geometry={geo} material={m} castShadow receiveShadow />
+      {pieces.map((s, k) => (
+        <mesh key={k} geometry={splashGeos[k]} material={m} position={[-len / 2 + (s.a + s.b) / 2, t, -depth / 2 + SPLASH_T / 2]} castShadow receiveShadow />
+      ))}
+      {selected && <lineSegments geometry={EDGES} material={OUTLINE} position={[0, t / 2, 0]} scale={[len + 12, t + 12, depth + 12]} />}
+    </group>
+  );
+});
+
 function Worktops() {
   const items = usePlanner((s) => s.design.items);
   const room = usePlanner((s) => s.design.room);
-  const top = usePlanner((s) => s.design.style.worktop);
-  const runs = useMemo(() => worktopRuns({ items, room }), [items, room]);
-  const m = worktopMaterial(top);
+  const style = usePlanner((s) => s.design.style);
+  const openings = usePlanner((s) => s.design.openings);
+  const sel = usePlanner((s) => s.ui.sel);
+  const step = usePlanner((s) => s.ui.step);
+  const runs = useMemo(() => worktopRuns({ items, room, style }), [items, room, style]);
+  const picked = sel?.type === "top" ? findRun(runs, sel.id) : undefined;
   return (
     <>
       {runs.map((r, k) => (
-        <group key={k} position={[r.x, TOP_Y - TOP_T / 2 + k * 0.2, r.z]} rotation-y={r.rot}>
-          <B p={[0, 0, 0]} s={[r.len, TOP_T, r.depth]} m={m} />
-        </group>
+        <WorktopRun key={r.ref} run={r} order={k} openings={openings} room={room} editable={step === 2} selected={r === picked} />
       ))}
     </>
   );
@@ -354,9 +405,31 @@ function Dimensions() {
 /** Exposes the active camera so the DOM overlay can position labels. */
 function CameraBridge() {
   const camera = useThree((x) => x.camera);
+  const invalidate = useThree((x) => x.invalidate);
   useEffect(() => {
     sceneApi.camera = camera;
-  }, [camera]);
+    sceneApi.invalidate = invalidate;
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __plannerScene?: typeof sceneApi }).__plannerScene = sceneApi;
+  }, [camera, invalidate]);
+  // DOM overlays (labels, floating tools) follow the camera on the frames that actually render.
+  useFrame(() => {
+    sceneApi.frames++;
+    sceneApi.frameListeners.forEach((f) => f());
+  });
+  return null;
+}
+
+/** Marks the shadow map dirty whenever the scene's contents change, then asks for one frame. */
+function ShadowSync() {
+  const gl = useThree((x) => x.gl);
+  const invalidate = useThree((x) => x.invalidate);
+  const design = usePlanner((s) => s.design);
+  const showWall = usePlanner((s) => s.ui.showWallUnits);
+  const view = usePlanner((s) => s.ui.view);
+  useEffect(() => {
+    gl.shadowMap.needsUpdate = true;
+    invalidate();
+  }, [design, showWall, view, gl, invalidate]);
   return null;
 }
 
@@ -440,7 +513,7 @@ type Controls = { target: THREE.Vector3; update: () => void; enabled: boolean };
 const saved3d = { has: false, pos: new THREE.Vector3(), target: new THREE.Vector3() };
 
 function WalkControls({ box }: { box: ReturnType<typeof bounds> }) {
-  const { camera, gl } = useThree();
+  const { camera, gl, invalidate } = useThree();
   const yaw = useRef(0);
   const pitch = useRef(0);
   useEffect(() => {
@@ -449,13 +522,18 @@ function WalkControls({ box }: { box: ReturnType<typeof bounds> }) {
     const pd = (e: PointerEvent) => (down = { x: e.clientX, y: e.clientY });
     const pm = (e: PointerEvent) => {
       if (!down) return;
+      invalidate();
       yaw.current -= (e.clientX - down.x) * 0.004;
       pitch.current = Math.max(-1.2, Math.min(1.2, pitch.current - (e.clientY - down.y) * 0.004));
       down = { x: e.clientX, y: e.clientY };
     };
     const pu = () => (down = null);
     const typing = (e: KeyboardEvent) => e.target instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName);
-    const kd = (e: KeyboardEvent) => !typing(e) && sceneApi.walkKeys.add(e.key.toLowerCase());
+    const kd = (e: KeyboardEvent) => {
+      if (typing(e)) return;
+      sceneApi.walkKeys.add(e.key.toLowerCase());
+      invalidate();
+    };
     const ku = (e: KeyboardEvent) => sceneApi.walkKeys.delete(e.key.toLowerCase());
     el.addEventListener("pointerdown", pd);
     window.addEventListener("pointermove", pm);
@@ -470,9 +548,11 @@ function WalkControls({ box }: { box: ReturnType<typeof bounds> }) {
       window.removeEventListener("keyup", ku);
       sceneApi.walkKeys.clear();
     };
-  }, [gl]);
-  useFrame((_, dt) => {
+  }, [gl, invalidate]);
+  useFrame((_, rawDt) => {
     const k = sceneApi.walkKeys;
+    const dt = Math.min(rawDt, 1 / 20);
+    if (k.size) invalidate();
     const f = (k.has("w") || k.has("arrowup") ? 1 : 0) - (k.has("s") || k.has("arrowdown") ? 1 : 0);
     const r = (k.has("d") ? 1 : 0) - (k.has("a") ? 1 : 0);
     const turn = (k.has("arrowleft") ? 1 : 0) - (k.has("arrowright") ? 1 : 0);
@@ -495,6 +575,7 @@ function CameraRig() {
   const size = useThree((s) => s.size);
   const camera = useThree((s) => s.camera);
   const get = useThree((s) => s.get);
+  const invalidate = useThree((s) => s.invalidate);
   const resetN = useRef(0);
   if (cmd?.type === "reset" && cmd.n !== resetN.current) {
     resetN.current = cmd.n;
@@ -546,6 +627,7 @@ function CameraRig() {
         cam.position.copy(c.target).add(off);
       }
       c?.update();
+      invalidate();
     }
     if (cmd.type === "focus" && cmd.id && c) {
       const d = getState().design;
@@ -567,8 +649,9 @@ function CameraRig() {
         cam.position.copy(pt).add(dir.multiplyScalar(Math.max(1.6, dm.w / 600 + 1.2)));
       }
       c.update();
+      invalidate();
     }
-  }, [cmd, camera, get, cfg.zoom]);
+  }, [cmd, camera, get, cfg.zoom, invalidate]);
 
   const key = `${view}-${elevWall}-${resetN.current}`;
   if (view === "plan" || view === "elevation")
@@ -596,44 +679,55 @@ function CameraRig() {
 // ---------------------------------------------------------------- environment
 
 function Environment() {
-  const { gl, scene } = useThree();
+  const { gl, scene, invalidate } = useThree();
+  const evening = usePlanner((s) => s.design.lighting.mode === "evening");
   useEffect(() => {
     const pm = new THREE.PMREMGenerator(gl);
     const env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = env;
-    scene.environmentIntensity = 0.55;
     return () => {
       scene.environment = null;
       env.dispose();
       pm.dispose();
     };
   }, [gl, scene]);
+  useEffect(() => {
+    scene.environmentIntensity = evening ? 0.12 : 0.55;
+    scene.background = new THREE.Color(evening ? "#1c2027" : "#f1efea");
+    invalidate();
+  }, [evening, scene, invalidate]);
   return null;
 }
 
 function Lights() {
   const shape = usePlanner((s) => s.design.room.shape);
   const scene = useThree((s) => s.scene);
+  const gl = useThree((s) => s.gl);
+  const invalidate = useThree((s) => s.invalidate);
   const light = useRef<THREE.DirectionalLight>(null);
   const b = useMemo(() => bounds(roomPolygon(shape)), [shape]);
   const cx = b.cx / 1000, cz = b.cz / 1000, r = Math.max(b.w, b.d) / 1000 / 2 + 1.5;
+  // Evening: daylight drops to a faint blue fill so the LED strips and lamps carry the room.
+  const evening = usePlanner((s) => s.design.lighting.mode === "evening");
   useEffect(() => {
     const l = light.current;
     if (!l) return;
     l.target.position.set(cx, 0, cz);
     scene.add(l.target);
+    gl.shadowMap.needsUpdate = true;
+    invalidate();
     return () => {
       scene.remove(l.target);
     };
-  }, [cx, cz, scene]);
+  }, [cx, cz, scene, gl, invalidate]);
   return (
     <>
-      <hemisphereLight args={["#ffffff", "#d9d2c6", 0.75]} />
+      <hemisphereLight args={[evening ? "#9fb3d1" : "#ffffff", evening ? "#2a2622" : "#d9d2c6"]} intensity={evening ? 0.22 : 0.75} />
       <directionalLight
         ref={light}
         castShadow
         position={[cx + 2.2, 7, cz + 3.4]}
-        intensity={1.5}
+        intensity={evening ? 0.08 : 1.5}
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0003}
         shadow-normalBias={0.02}
@@ -644,7 +738,7 @@ function Lights() {
         shadow-camera-near={1}
         shadow-camera-far={20}
       />
-      <pointLight position={[cx, 2.4, cz]} intensity={1.2} distance={9} decay={1.6} />
+      <pointLight position={[cx, 2.4, cz]} intensity={evening ? 0.15 : 1.2} distance={9} decay={1.6} />
     </>
   );
 }
@@ -668,17 +762,22 @@ export default function PlannerScene() {
     <Canvas
       shadows
       dpr={[1, 2]}
-      gl={{ antialias: true }}
+      // Render only when something changes (camera move, edit, animation) instead of 60+ times a second.
+      frameloop="demand"
+      gl={{ antialias: true, powerPreference: "high-performance" }}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.NeutralToneMapping;
         gl.toneMappingExposure = 1.05;
+        // The shadow map is rebuilt only when the scene changes, not on every camera move (see ShadowSync).
+        gl.shadowMap.autoUpdate = false;
+        gl.shadowMap.needsUpdate = true;
       }}
       onPointerMissed={() => setUI((ui) => ({ sel: null, panel: ui.panel?.kind === "selected" || ui.panel?.kind === "openings" ? null : ui.panel }))}
       className="touch-none"
     >
-      <color attach="background" args={["#f1efea"]} />
       <Environment />
       <Lights />
+      <KitchenLights />
       <CameraRig />
       <group scale={0.001}>
         <RoomMesh />
@@ -687,6 +786,7 @@ export default function PlannerScene() {
         <Dimensions />
       </group>
       <DragController />
+      <ShadowSync />
       <CameraBridge />
       <Capture />
     </Canvas>

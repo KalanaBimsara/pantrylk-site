@@ -3,12 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { duplicateItem, removeSelection, rotateItem, setCeiling, startDesign, type Template } from "@/lib/planner/actions";
+import { duplicateItem, removeSelection, rotateItem, setCeiling, setLighting, setLocked, startDesign, type Template } from "@/lib/planner/actions";
 import { getProduct, MENUS } from "@/lib/planner/catalog";
 import { itemDims, itemOnWall, roomWalls } from "@/lib/planner/geometry";
 import { estimate, partsList } from "@/lib/planner/review";
 import { decodeDesign, openFile, saveFile, shareLink } from "@/lib/planner/share";
-import { command, getState, readSaved, redo, replaceDesign, setUI, startAutosave, toast, undo, update, usePlanner } from "@/lib/planner/store";
+import { command, getState, readLocked, readSaved, redo, replaceDesign, setUI, startAutosave, toast, undo, update, usePlanner } from "@/lib/planner/store";
 import type { OpeningType, Product, RoomShape, View } from "@/lib/planner/types";
 import Overlay from "./Overlay";
 import { SelectionCard, SidePanel } from "./panels";
@@ -17,7 +17,13 @@ import PlannerScene, { sceneApi } from "./three/Scene";
 import { Icon, NumberField } from "./ui";
 
 const lkr = new Intl.NumberFormat("en-LK", { maximumFractionDigits: 0 });
-const frames = (n: number) => new Promise<void>((r) => { const tick = (k: number) => (k <= 0 ? r() : requestAnimationFrame(() => tick(k - 1))); tick(n); });
+// Wait a few frames for the 3D view to settle; background tabs pause frames, so cap the wait.
+const frames = (n: number) =>
+  new Promise<void>((r) => {
+    const tick = (k: number) => (k <= 0 ? r() : requestAnimationFrame(() => tick(k - 1)));
+    tick(n);
+    setTimeout(r, 300);
+  });
 
 async function goStep(step: 1 | 2 | 3) {
   const ui = getState().ui;
@@ -126,7 +132,7 @@ function TopBar() {
           aria-label="Design name"
           className="w-48 truncate bg-transparent text-right text-[13px] font-semibold outline-none hover:underline focus:underline"
         />
-        <span className="text-[12px] text-muted">{total != null ? `LKR ${lkr.format(total)}` : `${d.items.length} item${d.items.length === 1 ? "" : "s"} · price on quotation`}</span>
+        <span className="text-[12px] text-muted">{total ? `Est. LKR ${lkr.format(total.total)}${total.unpriced ? " + extras" : ""}` : `${d.items.length} item${d.items.length === 1 ? "" : "s"} · price on quotation`}</span>
       </div>
       {step < 3 && (
         <button type="button" onClick={() => goStep((step + 1) as 2 | 3)} className="btn btn-navy !min-h-10 !px-3 !text-[13.5px] sm:!px-4">
@@ -229,6 +235,8 @@ function Toolbar() {
             <ToolButton icon="search" label="Search" active={panel?.kind === "search"} onClick={() => openPanel({ kind: "search" })} />
             <span className="mx-2 h-10 w-px shrink-0 bg-line" />
             <ToolButton icon="style" label="Kitchen style" active={panel?.kind === "style"} onClick={() => openPanel({ kind: "style" })} />
+            <ToolButton icon="top" label="Pantry tops" active={panel?.kind === "tops"} onClick={() => openPanel({ kind: "tops" })} />
+            <ToolButton icon="bulb" label="Lights" active={panel?.kind === "lights"} onClick={() => openPanel({ kind: "lights" })} />
             <ToolButton icon="camera" label="Photo" onClick={photo} />
             <ToolButton icon="list" label="Item list" active={panel?.kind === "list"} onClick={() => openPanel({ kind: "list" })} />
           </>
@@ -249,6 +257,7 @@ function Toolbar() {
 
 function ViewSwitcher() {
   const view = usePlanner((s) => s.ui.view);
+  const locked = usePlanner((s) => s.ui.locked);
   const elevWall = usePlanner((s) => s.ui.elevWall);
   const shape = usePlanner((s) => s.design.room.shape);
   const count = roomWalls(shape).length;
@@ -279,6 +288,16 @@ function ViewSwitcher() {
           <button type="button" aria-label="Next wall" className="grid h-10 w-9 place-items-center hover:bg-stone" onClick={() => setUI({ elevWall: (elevWall + 1) % count })}><Icon name="chevron" size={16} /></button>
         </div>
       )}
+      <button
+        type="button"
+        onClick={() => setLocked(!locked)}
+        aria-pressed={locked}
+        title={locked ? "Unlock the layout to move units again (L)" : "Lock the layout so units can't be moved by accident (L)"}
+        className={`flex h-10 items-center gap-1.5 border px-3 text-[12.5px] font-semibold shadow-sm ${locked ? "border-gold bg-gold text-navy" : "border-line bg-white text-ink-2 hover:bg-stone"}`}
+      >
+        <Icon name={locked ? "lock" : "unlock"} size={17} />
+        <span className="hidden sm:inline">{locked ? "Locked" : "Lock"}</span>
+      </button>
       <div className="flex border border-line bg-white shadow-sm" role="group" aria-label="View">
         {views.map((v) => (
           <button
@@ -298,12 +317,16 @@ function ViewSwitcher() {
 }
 
 function ZoomControls() {
+  const evening = usePlanner((s) => s.design.lighting.mode === "evening");
   const showDims = usePlanner((s) => s.ui.showDims);
   const showWall = usePlanner((s) => s.ui.showWallUnits);
   const [open, setOpen] = useState(false);
   const b = "grid h-10 w-10 place-items-center border border-line bg-white text-navy shadow-sm hover:bg-stone";
   return (
     <div className="no-print absolute bottom-4 right-3 z-10 flex flex-col gap-1.5">
+      <button type="button" className={b} aria-label={evening ? "Switch to daylight" : "Preview evening lighting"} title={evening ? "Daylight" : "Evening lighting"} aria-pressed={evening} onClick={() => setLighting({ mode: evening ? "day" : "evening" })}>
+        <Icon name={evening ? "sun" : "moon"} size={18} />
+      </button>
       <button type="button" className={b} aria-label="Zoom in" onClick={() => command("zoomIn")}><Icon name="plus" /></button>
       <button type="button" className={b} aria-label="Zoom out" onClick={() => command("zoomOut")}><Icon name="minus" /></button>
       <button type="button" className={b} aria-label="Reset view" title="Reset view" onClick={() => command("reset")}><Icon name="rotate" size={18} /></button>
@@ -332,7 +355,7 @@ function WalkPad() {
   const view = usePlanner((s) => s.ui.view);
   if (view !== "walk") return null;
   const hold = (k: string) => ({
-    onPointerDown: (e: React.PointerEvent) => { e.preventDefault(); sceneApi.walkKeys.add(k); },
+    onPointerDown: (e: React.PointerEvent) => { e.preventDefault(); sceneApi.walkKeys.add(k); sceneApi.invalidate?.(); },
     onPointerUp: () => sceneApi.walkKeys.delete(k),
     onPointerLeave: () => sceneApi.walkKeys.delete(k),
   });
@@ -472,7 +495,8 @@ function TipsDialog() {
     ["Move & snap", "Drag any item. It snaps flat against the nearest wall and lines up with its neighbours. A red outline means it doesn't fit there."],
     ["Look around", "Drag to orbit in 3D, right-drag (or two fingers) to pan, scroll or pinch to zoom. Try Floor, Wall and Walk views at the bottom."],
     ["Edit", "Select an item to modify its width, fronts and handle, replace it, open its doors or set an exact position."],
-    ["Shortcuts", "R rotate · Delete remove · Ctrl+D duplicate · Ctrl+Z undo · Ctrl+Y redo · Esc deselect."],
+    ["Lock the layout", "Happy with the layout? Press the padlock (or L). Units can't be moved, so dragging anywhere just looks around — you can still change finishes, tops and lights."],
+    ["Shortcuts", "R rotate · Delete remove · Ctrl+D duplicate · Ctrl+Z undo · Ctrl+Y redo · L lock · Esc deselect."],
     ["Saving", "Your design is saved in this browser as you work. Use Save & share to keep a file or send a link."],
   ];
   return (
@@ -517,6 +541,7 @@ function useShortcuts() {
       else if (mod && k === "d" && ui.sel?.type === "item") { e.preventDefault(); duplicateItem(ui.sel.id); }
       else if ((k === "delete" || k === "backspace") && ui.sel && ui.sel.type !== "wall") { e.preventDefault(); removeSelection(); }
       else if (k === "r" && !mod && ui.sel?.type === "item") rotateItem(ui.sel.id, e.shiftKey ? -1 : 1);
+      else if (k === "l" && !mod) setLocked(!ui.locked);
       else if (k === "escape") setUI({ sel: null, panel: ui.sel ? ui.panel : null, dialog: ui.dialog === "tips" ? null : ui.dialog });
     };
     window.addEventListener("keydown", onKey);
@@ -534,6 +559,7 @@ export default function KitchenPlanner({ contact }: { contact: ContactProps }) {
     const prev = html.style.overflow;
     html.style.overflow = "hidden";
     const stop = startAutosave();
+    setUI({ locked: readLocked() });
     if (!booted.current) {
       booted.current = true;
       (async () => {

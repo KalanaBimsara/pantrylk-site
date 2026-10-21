@@ -1,45 +1,48 @@
-import { PLINTH, TOP_Y, WALL_TOP } from "./finishes";
+import { BASE_BODY, BASE_D, BASE_WIDTHS, PLINTH, TOP_Y, WALL_D, WALL_H, WALL_TOP } from "./finishes";
 import type { OpeningType, Product } from "./types";
 
-const BASE = { group: "cabinets", layer: "base", mount: "wall", depth: 600, height: PLINTH + 720, elev: 0, plinth: PLINTH, worktop: true } as const;
-const WALL = { group: "cabinets", layer: "wall", mount: "wall", depth: 350, height: 720, elev: WALL_TOP - 720, plinth: 0 } as const;
-const TALL = { group: "cabinets", layer: "tall", mount: "wall", depth: 600, height: WALL_TOP, elev: 0, plinth: PLINTH } as const;
+const BASE = { group: "cabinets", layer: "base", mount: "wall", depth: BASE_D, height: PLINTH + BASE_BODY, elev: 0, plinth: PLINTH, worktop: true } as const;
+const WALL = { group: "cabinets", layer: "wall", mount: "wall", depth: WALL_D, height: WALL_H, elev: WALL_TOP - WALL_H, plinth: 0 } as const;
+const TALL = { group: "cabinets", layer: "tall", mount: "wall", depth: BASE_D, height: WALL_TOP, elev: 0, plinth: PLINTH } as const;
+const STD = BASE_WIDTHS;
 
 export const PRODUCTS: Product[] = [
-  // Base cabinets
-  { ...BASE, id: "base-corner", code: "BC", name: "Corner base cabinet", desc: "Blind corner unit with one door", subs: ["Base cabinets/For corner"], model: "corner", widths: [900, 1000, 1200] },
-  { ...BASE, id: "base-sink", code: "BS", name: "Sink base cabinet", desc: "Doors, with inset sink and mixer tap", subs: ["Base cabinets/For sink"], model: "sink", widths: [600, 800, 900, 1000] },
-  { ...BASE, id: "base-hob", code: "BH", name: "Cooktop base cabinet", desc: "3 drawers, with built-in hob", subs: ["Base cabinets/For cooktop"], model: "hob", widths: [600, 800, 900], drawers: 3 },
+  // Base cabinets: 750 high × 560 deep, standard widths 200 / 400 / 600 / 800
+  { ...BASE, id: "base-corner-l", code: "BCL", name: "L-shaped corner base unit", desc: "Uses the full corner, with folding doors", subs: ["Base cabinets/For corner"], model: "cornerL", widths: [900], depth: 900, arm: BASE_D },
+  { ...BASE, id: "base-corner", code: "BC", name: "Blind corner base unit", desc: "One door; the blind side runs under the next worktop", subs: ["Base cabinets/For corner"], model: "corner", widths: [800, 1000] },
+  { ...BASE, id: "base-sink", code: "BS", name: "Sink base cabinet", desc: "Doors, with inset sink and mixer tap", subs: ["Base cabinets/For sink"], model: "sink", widths: [600, 800] },
+  { ...BASE, id: "base-hob", code: "BH", name: "Cooktop base cabinet", desc: "3 drawers, with built-in hob", subs: ["Base cabinets/For cooktop"], model: "hob", widths: [600, 800], drawers: 3 },
   { ...BASE, id: "base-hob-oven", code: "BO", name: "Cooktop & oven cabinet", desc: "Built-in oven, hob and top drawer", subs: ["Base cabinets/For cooktop & oven"], model: "hobOven", widths: [600] },
   { ...BASE, id: "base-dishwasher", code: "DW", name: "Integrated dishwasher", desc: "Fully integrated, matching front", subs: ["Base cabinets/For dishwasher", "Appliances/Dishwashers"], model: "dishwasher", widths: [450, 600] },
-  { ...BASE, id: "base-door", code: "B", name: "Base cabinet with doors", desc: "1 or 2 doors, adjustable shelf", subs: ["Base cabinets/With doors"], model: "doors", widths: [300, 400, 450, 500, 600, 800, 900] },
-  { ...BASE, id: "base-drawers-2", code: "BD2", name: "Base cabinet, 2 drawers", desc: "2 deep pan drawers", subs: ["Base cabinets/With drawers"], model: "drawers", drawers: 2, widths: [400, 600, 800, 900] },
-  { ...BASE, id: "base-drawers-3", code: "BD3", name: "Base cabinet, 3 drawers", desc: "1 shallow and 2 deep drawers", subs: ["Base cabinets/With drawers"], model: "drawers", drawers: 3, widths: [400, 500, 600, 800] },
+  { ...BASE, id: "base-door", code: "B", name: "Base cabinet with doors", desc: "1 or 2 doors, adjustable shelf", subs: ["Base cabinets/With doors"], model: "doors", widths: STD },
+  { ...BASE, id: "base-drawers-2", code: "BD2", name: "Base cabinet, 2 drawers", desc: "2 deep pan drawers", subs: ["Base cabinets/With drawers"], model: "drawers", drawers: 2, widths: [400, 600, 800] },
+  { ...BASE, id: "base-drawers-3", code: "BD3", name: "Base cabinet, 3 drawers", desc: "1 shallow and 2 deep drawers", subs: ["Base cabinets/With drawers"], model: "drawers", drawers: 3, widths: [400, 600, 800] },
   { ...BASE, id: "base-drawers-4", code: "BD4", name: "Base cabinet, 4 drawers", desc: "2 shallow and 2 medium drawers", subs: ["Base cabinets/With drawers"], model: "drawers", drawers: 4, widths: [400, 600] },
-  { ...BASE, id: "base-pullout", code: "BP", name: "Pull-out base cabinet", desc: "Narrow pull-out for bottles and spices", subs: ["Base cabinets/With pull-out"], model: "pullout", widths: [150, 200, 300] },
-  { ...BASE, id: "base-open", code: "BOS", name: "Open base cabinet", desc: "Open shelves, no doors", subs: ["Base cabinets/Open cabinets"], model: "open", widths: [300, 400, 600] },
+  { ...BASE, id: "base-pullout", code: "BP", name: "Pull-out base cabinet", desc: "Narrow pull-out for bottles and spices", subs: ["Base cabinets/With pull-out"], model: "pullout", widths: [200] },
+  { ...BASE, id: "base-open", code: "BOS", name: "Open base cabinet", desc: "Open shelves, no doors", subs: ["Base cabinets/Open cabinets"], model: "open", widths: [200, 400, 600] },
 
-  // Wall cabinets
-  { ...WALL, id: "wall-door", code: "W", name: "Wall cabinet with doors", desc: "1 or 2 doors, 2 shelves", subs: ["Wall cabinets/With doors"], model: "doors", widths: [300, 400, 450, 500, 600, 800, 900] },
+  // Wall cabinets: 750 high × 350 deep
+  { ...WALL, id: "wall-corner-l", code: "WCL", name: "L-shaped corner wall unit", desc: "Fills the corner above an L-shaped base unit", subs: ["Wall cabinets/For corner"], model: "cornerL", widths: [900], depth: 900, arm: WALL_D },
+  { ...WALL, id: "wall-door", code: "W", name: "Wall cabinet with doors", desc: "1 or 2 doors, 2 shelves", subs: ["Wall cabinets/With doors"], model: "doors", widths: STD },
   { ...WALL, id: "wall-glass", code: "WG", name: "Wall cabinet, glass doors", desc: "Framed glass doors for display", subs: ["Wall cabinets/With glass doors"], model: "glass", widths: [400, 600, 800] },
-  { ...WALL, id: "wall-lift", code: "WH", name: "Horizontal wall cabinet", desc: "Lift-up front", subs: ["Wall cabinets/Horizontal cabinets"], model: "lift", widths: [600, 800, 900], height: 400, elev: WALL_TOP - 400 },
-  { ...WALL, id: "wall-lift-2", code: "WH2", name: "Horizontal wall cabinet, 2 fronts", desc: "Two stacked lift-up fronts", subs: ["Wall cabinets/Horizontal cabinets"], model: "lift", widths: [600, 800, 900] },
-  { ...WALL, id: "wall-open", code: "WO", name: "Open wall cabinet", desc: "Open shelves", subs: ["Wall cabinets/Open cabinets"], model: "open", widths: [300, 600, 800] },
-  { ...WALL, id: "wall-fridge", code: "WF", name: "Wall cabinet above fridge", desc: "Deep cabinet with lift-up front", subs: ["Wall cabinets/Refrigerator cabinets"], model: "lift", widths: [600, 700, 900], depth: 600, height: 400, elev: WALL_TOP - 400 },
+  { ...WALL, id: "wall-lift", code: "WH", name: "Horizontal wall cabinet", desc: "Lift-up front", subs: ["Wall cabinets/Horizontal cabinets"], model: "lift", widths: [600, 800], height: 400, elev: WALL_TOP - 400 },
+  { ...WALL, id: "wall-lift-2", code: "WH2", name: "Horizontal wall cabinet, 2 fronts", desc: "Two stacked lift-up fronts", subs: ["Wall cabinets/Horizontal cabinets"], model: "lift", widths: [600, 800] },
+  { ...WALL, id: "wall-open", code: "WO", name: "Open wall cabinet", desc: "Open shelves", subs: ["Wall cabinets/Open cabinets"], model: "open", widths: [200, 400, 600] },
+  { ...WALL, id: "wall-fridge", code: "WF", name: "Wall cabinet above fridge", desc: "Deep cabinet with lift-up front", subs: ["Wall cabinets/Refrigerator cabinets"], model: "lift", widths: [600, 800], depth: BASE_D, height: 400, elev: WALL_TOP - 400 },
   { id: "hood-chimney", code: "HD", name: "Chimney extractor hood", desc: "Wall-mounted, stainless steel", group: "appliances", subs: ["Wall cabinets/For extractor hood", "Appliances/Extractor hoods"], layer: "wall", mount: "wall", model: "hood", widths: [600, 900], depth: 500, height: 620, elev: WALL_TOP - 620, plinth: 0, finish: "steel" },
 
-  // High cabinets
+  // High cabinets: 560 deep
   { ...TALL, id: "tall-oven", code: "HO", name: "High cabinet for oven", desc: "Built-in oven, drawer and top door", subs: ["High cabinets/For oven"], model: "tallOven", widths: [600] },
   { ...TALL, id: "tall-oven-micro", code: "HOM", name: "High cabinet for oven & microwave", desc: "Oven and microwave at eye level", subs: ["High cabinets/For oven & microwave"], model: "tallOvenMicro", widths: [600] },
   { ...TALL, id: "tall-fridge", code: "HF", name: "High cabinet for fridge & freezer", desc: "Integrated fridge-freezer", subs: ["High cabinets/For fridge & freezer"], model: "tallFridge", widths: [600] },
-  { ...TALL, id: "tall-door", code: "H", name: "High cabinet with doors", desc: "Pantry storage, 5 shelves", subs: ["High cabinets/With doors"], model: "tallDoors", widths: [400, 500, 600, 800] },
-  { ...TALL, id: "tall-pullout", code: "HP", name: "High pantry pull-out", desc: "Wire baskets behind the doors", subs: ["High cabinets/With pull-out"], model: "tallPullout", widths: [300, 400, 600] },
+  { ...TALL, id: "tall-door", code: "H", name: "High cabinet with doors", desc: "Pantry storage, 5 shelves", subs: ["High cabinets/With doors"], model: "tallDoors", widths: [400, 600, 800] },
+  { ...TALL, id: "tall-pullout", code: "HP", name: "High pantry pull-out", desc: "Wire baskets behind the doors", subs: ["High cabinets/With pull-out"], model: "tallPullout", widths: [400, 600] },
 
   // Appliances
   { id: "fridge", code: "RF", name: "Fridge-freezer", desc: "Freestanding, bottom freezer", group: "appliances", subs: ["Appliances/Fridges"], layer: "appliance", mount: "wall", model: "fridge", widths: [600, 700], depth: 680, height: 1850, elev: 0, plinth: 0, finish: "steel" },
   { id: "fridge-double", code: "RS", name: "Side-by-side fridge", desc: "Freestanding, double door", group: "appliances", subs: ["Appliances/Fridges"], layer: "appliance", mount: "wall", model: "fridgeDouble", widths: [900], depth: 700, height: 1780, elev: 0, plinth: 0, finish: "steel" },
   { id: "range", code: "RC", name: "Range cooker", desc: "Freestanding gas hob and oven", group: "appliances", subs: ["Appliances/Cooking"], layer: "appliance", mount: "wall", model: "range", widths: [600, 900], depth: 600, height: TOP_Y, elev: 0, plinth: 0, finish: "steel" },
-  { id: "washer", code: "WM", name: "Washing machine", desc: "Front loader, fits under the worktop", group: "appliances", subs: ["Appliances/Laundry"], layer: "base", mount: "wall", model: "washer", widths: [600], depth: 600, height: 820, elev: 0, plinth: 0, worktop: true, finish: "white" },
+  { id: "washer", code: "WM", name: "Washing machine", desc: "Front loader, fits under the worktop", group: "appliances", subs: ["Appliances/Laundry"], layer: "base", mount: "wall", model: "washer", widths: [600], depth: BASE_D, height: PLINTH + BASE_BODY, elev: 0, plinth: 0, worktop: true, finish: "white" },
   { id: "microwave", code: "MW", name: "Countertop microwave", desc: "Sits on the worktop", group: "appliances", subs: ["Appliances/Small appliances"], layer: "fixture", mount: "wall", model: "microwave", widths: [500], depth: 400, height: 300, elev: TOP_Y, plinth: 0, finish: "black" },
 
   // Dining
@@ -51,6 +54,8 @@ export const PRODUCTS: Product[] = [
   // Kitchen extras
   { id: "shelf", code: "SH", name: "Floating wall shelf", desc: "Solid shelf on hidden brackets", group: "extras", subs: ["Kitchen extras/Shelves"], layer: "wall", mount: "wall", model: "shelf", widths: [600, 800, 1000, 1200], depth: 250, height: 30, elev: 1600, plinth: 0 },
   { id: "pendant", code: "L", name: "Pendant light", desc: "Hangs from the ceiling", group: "extras", subs: ["Kitchen extras/Lighting"], layer: "free", mount: "free", model: "pendant", widths: [300], depth: 300, height: 400, elev: 0, plinth: 0, solid: false, hang: 900 },
+  { id: "led-strip", code: "LED", name: "LED strip light", desc: "Mount anywhere: under a shelf, in a niche, behind a TV unit", group: "extras", subs: ["Kitchen extras/Lighting"], layer: "fixture", mount: "wall", model: "ledStrip", widths: [600, 900, 1200, 1800, 2400], depth: 14, height: 10, elev: 1450, plinth: 0, solid: false },
+  { id: "downlight", code: "DL", name: "Ceiling downlight", desc: "Recessed LED spotlight", group: "extras", subs: ["Kitchen extras/Lighting"], layer: "free", mount: "free", model: "downlight", widths: [90], depth: 90, height: 12, elev: 0, plinth: 0, solid: false, hang: 12 },
   { id: "bin", code: "WB", name: "Pedal bin", desc: "Freestanding waste bin", group: "extras", subs: ["Kitchen extras/Waste sorting"], layer: "free", mount: "free", model: "bin", widths: [300], depth: 300, height: 650, elev: 0, plinth: 0, solid: false },
 
   // Room elements (step 1)
@@ -77,7 +82,7 @@ export const MENUS: { group: Product["group"]; label: string; sections: { title:
     label: "Cabinets",
     sections: [
       { title: "Base cabinets", subs: ["For corner", "For sink", "For cooktop", "For cooktop & oven", "For dishwasher", "With doors", "With drawers", "With pull-out", "Open cabinets"] },
-      { title: "Wall cabinets", subs: ["With doors", "With glass doors", "Horizontal cabinets", "For extractor hood", "Refrigerator cabinets", "Open cabinets"] },
+      { title: "Wall cabinets", subs: ["For corner", "With doors", "With glass doors", "Horizontal cabinets", "For extractor hood", "Refrigerator cabinets", "Open cabinets"] },
       { title: "High cabinets", subs: ["For oven", "For oven & microwave", "For fridge & freezer", "With doors", "With pull-out"] },
     ],
   },

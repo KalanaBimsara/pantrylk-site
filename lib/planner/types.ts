@@ -46,13 +46,34 @@ export type Item = {
   color?: string;
   mirror?: boolean;
   open?: boolean;
+  /** Worktop override for the section this base unit belongs to. */
+  top?: Partial<TopSpec>;
+  /** LED strip override for this item; unset follows the kitchen lighting zones. */
+  light?: "on" | "off";
+};
+
+export type TopEdge = "square" | "eased" | "bevel" | "bullnose";
+export type Splash = "none" | "low" | "full";
+export type TopSpec = { material: string; thickness: number; edge: TopEdge; splash: Splash };
+
+export type LightZone = "under" | "plinth" | "glass" | "cove" | "shelf";
+export type Lighting = {
+  mode: "day" | "evening";
+  color: string;
+  /** 0.2 – 1.5 */
+  brightness: number;
+  zones: Record<LightZone, boolean>;
 };
 
 export type KitchenStyle = {
   front: string;
   handle: string;
+  /** Worktop material id. */
   worktop: string;
   carcass: string;
+  topThickness: number;
+  topEdge: TopEdge;
+  splash: Splash;
 };
 
 export type Design = {
@@ -62,6 +83,7 @@ export type Design = {
   openings: Opening[];
   items: Item[];
   style: KitchenStyle;
+  lighting: Lighting;
   notes: string;
 };
 
@@ -104,7 +126,10 @@ export type ModelId =
   | "switch"
   | "radiator"
   | "vent"
-  | "water";
+  | "water"
+  | "ledStrip"
+  | "downlight"
+  | "cornerL";
 
 export type Product = {
   id: string;
@@ -131,6 +156,8 @@ export type Product = {
   hang?: number;
   resizable?: boolean;
   drawers?: number;
+  /** L-shaped corner units: depth of each arm (the footprint is width × depth). */
+  arm?: number;
   /** Fixed appliance finish; otherwise the kitchen front finish is used. */
   finish?: "steel" | "white" | "black";
   /** Indicative LKR price for the first width. Leave unset to show "price on request". */
@@ -139,7 +166,8 @@ export type Product = {
 
 export type View = "plan" | "elevation" | "3d" | "walk";
 
-export type Selection = { type: "item" | "opening" | "wall"; id: string } | null;
+/** "top" selects the worktop section that contains the item with this id. */
+export type Selection = { type: "item" | "opening" | "wall" | "top"; id: string } | null;
 
 export type Panel =
   | { kind: "catalog"; group: Product["group"]; sub: string }
@@ -149,5 +177,7 @@ export type Panel =
   | { kind: "surfaces" }
   | { kind: "openings"; type: OpeningType }
   | { kind: "style" }
+  | { kind: "tops" }
+  | { kind: "lights" }
   | { kind: "list" }
   | null;

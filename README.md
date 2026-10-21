@@ -14,5 +14,17 @@ Views: Floor (2D plan), Wall (elevation), 3D orbit and Walk. Undo/redo, autosave
 Code: `lib/planner/` (data model, catalog, finishes, geometry/snapping, store, review, sharing) and `components/planner/` (UI, SVG plans, `three/` scene and procedural models — no external 3D assets).
 
 - **Catalog & finishes**: edit `lib/planner/catalog.ts` and `lib/planner/finishes.ts`.
-- **Prices**: products have no `price`, so the planner shows "price on quotation". Set an indicative LKR `price` (for the first listed width) on every product to show live totals.
+- **Pantry tops** (toolbar › Pantry tops, or click a worktop): Granite, Staron solid surface, Quartz, Marble, Timber, Laminate and Stainless steel in `WORKTOPS` (`lib/planner/finishes.ts`), with thickness, edge profile (square / eased / bevel / bullnose) and backsplash (none / 100 mm upstand / full height, cut around windows). Set for the whole kitchen or per section; base-unit plinths adjust so the worktop stays at 860 mm.
+- **Lights** (toolbar › Lights, or the moon button for an evening preview): LED strip zones (under / above wall cabinets, plinth, inside glass cabinets, under shelves), colour (warm / natural / cool white or RGB), brightness, per-cabinet on/off, plus LED strip, downlight and pendant items. Strip metres and tops (m², splashback m²) are added to the item list and the WhatsApp summary.
+- **Standard sizes** (`lib/planner/finishes.ts`): base units 750 mm high × 560 mm deep on 100 mm adjustable legs, widths 200 / 400 / 600 / 800; wall units 750 × 350; worktops 610 mm (2 ft) deep. Corner units: L-shaped 900 × 900 (base and wall) and blind corner 800 / 1000.
+- **Prices** (`lib/planner/pricing.ts`): cabinets LKR 7,100 per sq ft of front (width × height; an L corner unit counts the run it covers on both walls). Granite LKR 3,200 per sq ft, each slab side rounded up to whole feet (2.1 ft → 3 ft). Appliances, other worktop materials and LED strips stay "quoted separately" until a rate is set (`price` on a worktop, `LED_PRICE_PER_M`).
+- **Layout lock**: the padlock (or L) stops units being moved, resized, added or removed; dragging then just turns the view, and finishes, tops and lights can still change.
+- **Performance**: the 3D view renders on demand (nothing while idle), the shadow map is rebuilt only when the scene changes, glass avoids the extra transmission pass, and LED strips along a run share one area light.
+
+## Standard units on the Products page
+
+`lib/planner/site-products.ts` lists the standard base, wall and corner units shown on the Products page. Their sizes, prices and specs come from the planner catalog and pricing rules, and each product page has a live 3D view (`components/planner/ProductViewer.tsx`).
+
+- Photos are rendered from the 3D models into `public/images/products`. To refresh them, run `npm run dev`, open `/dev/product-renders` and press **Render all photos** (development only; the page and its save endpoint return 404 in production).
+- The products are in the seed content and in `supabase/migrations/0003_standard_units.sql` for the live database.
 - Setting `kitchenPlannerUrl` in site settings still redirects to an external planner instead.
