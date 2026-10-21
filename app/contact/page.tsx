@@ -72,7 +72,7 @@ export default async function ContactPage({ searchParams }: { searchParams: Prom
           <div className="mt-8 flex flex-col gap-2.5 border-t border-line pt-8">
             <a href={quote.href} {...externalProps(quote, s.openAppsInNewTab)} className="btn btn-gold">Get a Quotation{quote.external && " ↗"}</a>
             {planner.available ? (
-              <a href={planner.href} {...externalProps(planner, s.openAppsInNewTab)} className="btn btn-outline">Open Kitchen Planner ↗</a>
+              <a href={planner.href} {...externalProps(planner, s.openAppsInNewTab)} className="btn btn-outline">Open Kitchen Planner{planner.external && " ↗"}</a>
             ) : (
               <p className="text-center text-[13.5px] text-muted">Kitchen Planner — coming soon</p>
             )}

@@ -184,10 +184,10 @@ export default async function HomePage() {
             <h2 id="plan-h" className="display h-lg">Your Kitchen. Your Vision. Let&apos;s Design It.</h2>
             {planner.available ? (
               <>
-                <p className="lead">Arrange cabinets, try layouts and explore finishes in our Kitchen Planner, then share your plan with our team when you&apos;re ready.</p>
+                <p className="lead">Set your room size, arrange cabinets and appliances in 3D and try finishes in our free Kitchen Planner, then send your plan to our team for a quotation.</p>
                 <div className="mt-2 flex flex-wrap items-center gap-5">
-                  <a href={planner.href} {...externalProps(planner, s.openAppsInNewTab)} className="btn btn-gold">Open Kitchen Planner <ArrowUpRight /></a>
-                  {s.openAppsInNewTab && <span className="text-[14px] text-muted">Opens in a new tab</span>}
+                  <a href={planner.href} {...externalProps(planner, s.openAppsInNewTab)} className="btn btn-gold">Open Kitchen Planner {planner.external && <ArrowUpRight />}</a>
+                  {planner.external && s.openAppsInNewTab && <span className="text-[14px] text-muted">Opens in a new tab</span>}
                 </div>
               </>
             ) : (

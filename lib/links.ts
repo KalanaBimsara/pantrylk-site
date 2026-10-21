@@ -2,11 +2,11 @@ import type { SiteSettings } from "./types";
 
 export type AppLink = { href: string; external: boolean; available: boolean };
 
-/** Kitchen Planner: external app when configured, otherwise our "coming soon" page. */
+/** Kitchen Planner: external app when configured, otherwise our built-in 3D planner. */
 export function plannerLink(s: SiteSettings): AppLink {
   return s.kitchenPlannerUrl
     ? { href: s.kitchenPlannerUrl, external: true, available: true }
-    : { href: "/kitchen-planner", external: false, available: false };
+    : { href: "/kitchen-planner", external: false, available: true };
 }
 
 /** Quotation Maker: external app when configured, otherwise the contact page. */

@@ -284,3 +284,30 @@
     opacity: 1;
   }
 }
+
+/* Kitchen Planner: print the "Make it happen" sheet as a normal document. */
+@media print {
+  body:has(.planner-root) > *:not(main),
+  body:has(.planner-root) main > *:not(.planner-root),
+  .planner-root .no-print {
+    display: none !important;
+  }
+  html:has(.planner-root) {
+    overflow: visible !important;
+  }
+  .planner-root,
+  .planner-root .print-flow {
+    position: static !important;
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .planner-root .print-only {
+    display: block !important;
+    break-before: page;
+  }
+  .planner-root .print-only svg {
+    break-inside: avoid;
+    margin-bottom: 24px;
+  }
+}

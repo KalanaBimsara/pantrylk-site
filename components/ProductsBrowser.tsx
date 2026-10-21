@@ -65,7 +65,11 @@ export default function ProductsBrowser({ products, categories, plannerHref, pla
             {plannerAvailable ? "Plan the whole kitchen first, then we'll suggest the right units." : "Our online Kitchen Planner is coming soon. Until then, we can plan the whole kitchen with you."}
           </p>
           {plannerAvailable ? (
-            <a href={plannerHref} target="_blank" rel="noopener noreferrer" className="btn btn-gold">Open Kitchen Planner ↗</a>
+            plannerHref.startsWith("/") ? (
+              <Link href={plannerHref} className="btn btn-gold">Open Kitchen Planner</Link>
+            ) : (
+              <a href={plannerHref} target="_blank" rel="noopener noreferrer" className="btn btn-gold">Open Kitchen Planner ↗</a>
+            )
           ) : (
             <Link href="/contact" className="btn btn-gold">Plan With Our Team</Link>
           )}
